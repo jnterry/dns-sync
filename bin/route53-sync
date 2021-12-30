@@ -1,0 +1,168 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+
+use Data::Compare;
+use File::Temp qw(tempfile);
+use Getopt::Long::Descriptive qw(describe_options);
+use JSON::XS;
+use Try::Tiny;
+
+use Data::Dumper;
+
+my ($cli) = describe_options(
+	'route53-sync %o',
+	[ 'zone|z=s', 'Route 53 Zone ID', { required => 1 } ],
+	[ 'directory|dir|d=s', 'Path to directory containing JSON files to sync', ],
+	[ 'verbose|v', 'Increases logging verbosity', ],
+	[ 'wait', 'Prevent exit until change has propogated to DNS servers', ],
+);
+
+my $json = new JSON::XS;
+$json->allow_nonref(1); # allow parsing root level arrays rather than objects from input "desired" json files
+
+exit main();
+
+sub main {
+	die "Directory $cli->{directory} does not exist" unless -d $cli->{directory};
+
+	my @existing = list_existing();
+	my @desired  = load_desired();
+	my @updates = compute_required_updates(\@existing, \@desired);
+
+	my $changeCount = scalar(@updates);
+
+	if($changeCount == 0) {
+		print "No updates required\n";
+		exit 0;
+	}
+
+	print "Performing AWS update ($changeCount record" . ($changeCount == 1 ? '' : 's') . " to change)\n";
+
+	@updates = map { { Action => "UPSERT", "ResourceRecordSet" => $_ } } @updates;
+	my $awsUpdate = {
+		Comment => "route53-sync update",
+		Changes => \@updates,
+	};
+	my $updateJson = $json->encode($awsUpdate);
+
+	my ($fh, $updateFilename) = tempfile("route53-sync-XXXXXXXX", DIR => '/tmp');
+	print $fh $updateJson;
+	close($fh);
+
+	# Make change and wait for completion
+	my $out = `aws route53 change-resource-record-sets --hosted-zone-id $cli->{zone} --change-batch file://${updateFilename}`;
+	my $retcode = $?;
+	unlink $fh;
+  exit ($retcode >> 8) if ($retcode >> 8 != 0);
+
+	if($cli->{wait}) {
+		my $change = $json->decode($out);
+		verbose("Waiting for Route53 update '$change->{ChangeInfo}{Id}' to complete\n");
+		my $elapsed = 20;
+		sleep($elapsed);
+		while($change->{ChangeInfo}{Status} ne "INSYNC") {
+			verbose("Waiting for Route53 update '$change->{ChangeInfo}{Id}' to complete (elapsed: ${elapsed}s)\n");
+			sleep(5);
+			$elapsed += 5;
+			$out = `aws route53 get-change --id $change->{ChangeInfo}{Id}`;
+			exit ($? >> 8) if ($? >> 8 != 0);
+			$change = $json->decode($out);
+		}
+	}
+
+	print "Update complete\n";
+}
+
+# Lists existing records using AWS CLI tool
+sub list_existing {
+  verbose("Listing existing DNS records...\n");
+
+	my $existing = `aws route53 list-resource-record-sets --hosted-zone-id $cli->{zone}`;
+	exit ($? >> 8) if ($? >> 8 != 0);
+	$existing = $json->decode($existing);
+
+	my @results;
+	push @results, @{$existing->{ResourceRecordSets}};
+
+	while($existing->{NextToken}) {
+		verbose("Fetching next page $existing->{NextToken}\n");
+	  $existing = `aws route53 list-resource-record-sets --hosted-zone-id $cli->{zone} --starting-token $existing->{NextToken}`;
+		exit ($? >> 8) if ($? >> 8 != 0);
+		$existing = $json->decode($existing);
+		push @results, @{$existing->{ResourceRecordSets}};
+	}
+
+	return @results;
+}
+
+# Loads desired records from directory
+sub load_desired {
+	opendir(my $dh, $cli->{directory});
+	my @files = readdir($dh);
+	closedir($dh);
+
+	my @results;
+
+	foreach my $file (@files) {
+		next unless $file =~ /.+\.json$/;
+		my $path = "$cli->{directory}/${file}";
+
+		open(my $fh, '<', $path) or die $!;
+		my $raw = do { local $/; <$fh> };
+		close($fh);
+
+		my $data;
+		try {
+			$data = $json->decode($raw);
+		} catch {
+			die "Failed to parse json from $path: $_";
+		};
+
+		if(ref($data) eq 'ARRAY') {
+			push @results, @$data;
+		} else {
+			push @results, $data;
+		}
+	}
+
+	# Ensure our data matches the format expected by AWS
+	foreach my $rec (@results) {
+		# AWS API uses . suffixed domain names (eg: test.example.com.)
+	  $rec->{Name} .= '.' if(substr($rec->{Name}, -1) ne '.');
+
+		# CNAME's must be wrapped in quotes
+		if($rec->{Type} eq "TXT") {
+			foreach my $v (@{$rec->{ResourceRecords}}) {
+				$v->{Value} = qq/"$v->{Value}"/ unless $v->{Value} =~ /".+"/;
+			}
+		}
+	}
+
+	return @results;
+}
+
+# Computes list of records which require creation/update
+sub compute_required_updates {
+	my ($existing, $desired) = @_;
+
+	my $eMap = {};
+
+	for my $record (@$existing) {
+		$eMap->{$record->{Name}}{$record->{Type}} = $record;
+	}
+
+	my @results;
+
+	for my $record (@$desired) {
+		push @results, $record unless Compare($record, $eMap->{$record->{Name}}{$record->{Type}});
+	}
+
+	return @results;
+}
+
+sub verbose {
+	return unless $cli->{verbose};
+	print @_;
+}

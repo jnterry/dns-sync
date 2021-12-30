@@ -1,0 +1,7 @@
+# Emacs Backup Files
+*#*#
+*.#*
+*~
+
+# Test data
+test/
