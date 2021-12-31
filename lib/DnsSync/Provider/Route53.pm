@@ -4,6 +4,8 @@ package DnsSync::Provider::Route53;
 
 sync-dns provider for interacting with AWS Route53
 
+=over
+
 =cut
 
 use strict;
@@ -12,7 +14,7 @@ use warnings;
 use File::Temp qw(tempfile);
 use JSON::XS qw(decode_json encode_json);
 
-use DnsSync::Utils qw(verbose);
+use DnsSync::Utils qw(verbose group_records compute_required_updates);
 
 use Exporter qw(import);
 our @EXPORT_OK = qw(
@@ -38,12 +40,12 @@ sub can_handle {
 	return $input =~ $URI_REGEX;
 }
 
-=item C<load_current>
+=item C<get_records>
 
 Fetches the existing records from AWS
 
 =cut
-sub get_current {
+sub get_records {
 	my ($uri) = @_;
 
 	die "Invalid Route53 URI: $uri" unless $uri =~ $URI_REGEX;
@@ -89,25 +91,43 @@ sub get_current {
 	return { records => \@results, origin => $origin };
 }
 
-=item C<write_changes>
+=item C<write_records>
 
-Writes update set to AWS
+Writes records to AWS. Note that intnerally this first calls get_records, and only updates those
+which have changed
 
-$uri            - route53://$zoneId uri to write changes to
-$records        - list of records to write
-$args->{origin} - DNS Origin to prepend to records label's
-$args->{wait}   - If set, will wait for change to propogate to DNS servers before returning
+=over 4
+
+=item C<uri>     route53://$zoneId uri to write changes to
+
+=item C<records> list of records to write
+
+=item C<args.origin> DNS Origin to prepend to records label's
+
+=item C<args.wait> If set, will wait for change to propogate to DNS servers before returning
+
+=back
 
 =cut
-sub write_changes {
+sub write_records {
 	my ($uri, $records, $args) = @_;
 
 	die "Invalid Route53 URI: $uri" unless $uri =~ $URI_REGEX;
 	my $zoneId = $1;
 
+	# Compute the set of changes that need to be made
+	my $existing = get_records($uri);
+	my @updates  = compute_required_updates($existing->{records}, $records);
+	if(scalar(@updates)== 0) {
+		print "No updates required\n";
+		return;
+	}
+
+	my $origin = $args->{origin} || $existing->{origin};
+
 	# Convert from list of zone file style record objects to AWS API objects
-	my @updates;
-	my $grouped = group_records($records);
+	my @actions;
+	my $grouped = group_records(\@updates);
 	for my $n (keys %$grouped) {
 		for my $t (keys %{$grouped->{$n}}) {
 			my $ttl = 999999999;
@@ -118,24 +138,23 @@ sub write_changes {
 				push @values, { Value => $r->{data} };
 			}
 
-			push @updates, {
-				Name            => "${n}.$args->{origin}",
+			push @actions, {
+				Name            => "${n}.${origin}",
 				Type            => $t,
 				TTL             => $ttl,
 				ResourceRecords => \@values,
 			};
 		}
 	}
-
-	my $changeCount = scalar(@updates);
-	print "Performing AWS update ($changeCount record" . ($changeCount == 1 ? '' : 's') . " to change)\n";
-
-	my @changes = map { { Action => "UPSERT", "ResourceRecordSet" => $_ } } @updates;
+	@actions = map { { Action => "UPSERT", "ResourceRecordSet" => $_ } } @actions;
 	my $awsUpdate = {
 		Comment => "route53-sync update",
-		Changes => \@changes,
+		Changes => \@actions,
 	};
 	my $updateJson = encode_json($awsUpdate);
+
+	my $changeCount = scalar(@actions);
+	print "Performing AWS update ($changeCount record" . ($changeCount == 1 ? '' : 's') . " to change)\n";
 
 	my ($fh, $updateFilename) = tempfile("route53-sync-XXXXXXXX", DIR => '/tmp');
 	print $fh $updateJson;

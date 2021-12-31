@@ -3,11 +3,11 @@
 use strict;
 use warnings;
 
-use Data::Compare;
 use Getopt::Long::Descriptive qw(describe_options);
 use Try::Tiny;
 
 use DnsSync::Provider::Route53;
+use DnsSync::Provider::ZoneFile;
 use DnsSync::Utils qw(verbose set_verbosity);
 
 use Data::Dumper;
@@ -17,97 +17,20 @@ my ($cli) = describe_options(
 	[ 'zone|z=s', 'Route 53 Zone ID', { required => 1 } ],
 	[ 'directory|dir|d=s', 'Path to directory containing JSON files to sync', ],
 	[ 'verbose|v', 'Increases logging verbosity', ],
-	[ 'wait', 'Prevent exit until change has propogated to DNS servers', ],
+	[ 'wait', 'Prevent exit until changes have propogated to DNS servers', ],
+	[ 'origin=s', 'Use specified DNS zone origin for write operations. This allows a record set to be transposed from one origin to another when source and target origins differ. Note that some providers force the origin to a particular value based on existing data. and will complain if this is set to a different value' ],
 );
 set_verbosity(1) if $cli->{verbose};
 
 exit main();
 
 sub main {
-	die "Directory $cli->{directory} does not exist" unless -d $cli->{directory};
+	my $source = DnsSync::Provider::ZoneFile::get_records($cli->{directory});
 
-	my @desired  = load_zone_files($cli->{directory});
-	my $aws = DnsSync::Provider::Route53::get_current($cli->{zone});
-	my @existing = @{$aws->{records}};
-	my @updates  = compute_required_updates(\@existing, \@desired);
+	DnsSync::Provider::Route53::write_records($cli->{zone}, $source->{records}, {
+		wait   => $cli->{wait},
+		origin => $source->{origin} || $cli->{origin},
+	});
 
-	if(scalar(@updates) == 0) {
-		print "No updates required\n";
-		return 0;
-	}
-
-	DnsSync::Provider::Route53::write_changes(\@updates, $aws->{origin});
 	return 0;
-}
-
-# Loads desired records from zone files within directory
-# Returns list of objects of the form:
-# { label,      ttl, class, type, data }
-#   example.com 600  IN     A     127.0.0.1
-sub load_zone_files {
-	my ($directory) = @_;
-	opendir(my $dh, $directory);
-	my @files = readdir($dh);
-	closedir($dh);
-
-	my @results;
-
-	foreach my $file (@files) {
-		next unless $file =~ /.+\.zone$/;
-		my $path = "$cli->{directory}/${file}";
-
-		open(my $fh, '<', $path) or die $!;
-		my $raw = do { local $/; <$fh> };
-		close($fh);
-
-		my @lines = split(/\n/, $raw);
-
-		foreach my $line (@lines) {
-			my ($label, $ttl, $class, $type, $data) = split(/\t/, $line);
-			die "Only Internet (aka: IN class) records are supported, got: $label $ttl $class $type $data in file $file" unless $class eq "IN";
-			die "TXT record data must be wrapped in quotes" if $type eq "TXT" and $data !~ /^"[^"]+"$/;
-			push @results, { label => $label, ttl => $ttl + 0, class => $class, type => $type, data => $data };
-		}
-	}
-
-	return @results;
-}
-
-# Computes list of records which require creation/update
-sub compute_required_updates {
-	my ($existing, $desired) = @_;
-
-	my $existingMap = group_records($existing);
-	my $desiredMap  = group_records($desired);
-
-	my @results;
-  for my $n (keys %$desiredMap) {
-		for my $t (keys %{$desiredMap->{$n}}) {
-
-			my $d = $desiredMap->{$n}{$t};
-			my $e = $existingMap->{$n}{$t};
-
-			push @results, @$d unless Compare($d, $e);
-
-		}
-	}
-
-	return @results;
-}
-
-# Helper which groups a list of DNS records into map of $map->{name}{type} => array of records
-sub group_records {
-	my ($records) = @_;
-
-	my $map = {};
-	push @{$map->{$_->{label}}{$_->{type}}}, $_ foreach @$records;
-
-	for my $n (keys %$map) {
-		for my $t (keys %{$map->{$n}}) {
-			my @list = sort { $a->{data} cmp $b->{data} } @{$map->{$n}{$t}};
-			$map->{$n}{$t} = \@list;
-		}
-	}
-
-	return $map;
 }
