@@ -20,15 +20,8 @@ our @EXPORT_OK = qw(
 
 sub _parse_uri {
 	my ($uri) = @_;
-
-	if($uri =~ qr{^\.?/}) {
-		return $uri;
-	}
-
-	if($uri =~ qr{^(file|unix)://(.+)$}) {
-		return $1;
-	}
-
+	return $uri if $uri =~ qr{^\.?/};
+	return $1 if $uri =~ qr{^(file|unix)://(.+)$};
 	return;
 }
 
@@ -45,7 +38,8 @@ Checks whether this provider is able to handle a particular dns uri
 =cut
 
 sub can_handle {
-	my $path = _parse_uri(@_);
+	my ($uri) = @_;
+	my $path = _parse_uri($uri);
 	return defined $path;
 }
 
