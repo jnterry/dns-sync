@@ -6,7 +6,7 @@ use warnings;
 use Data::Compare;
 use File::Temp qw(tempfile);
 use Getopt::Long::Descriptive qw(describe_options);
-use JSON::XS;
+use JSON::XS qw(decode_json encode_json);
 use Try::Tiny;
 
 use Data::Dumper;
@@ -19,33 +19,105 @@ my ($cli) = describe_options(
 	[ 'wait', 'Prevent exit until change has propogated to DNS servers', ],
 );
 
-my $json = new JSON::XS;
-$json->allow_nonref(1); # allow parsing root level arrays rather than objects from input "desired" json files
-
 exit main();
 
 sub main {
 	die "Directory $cli->{directory} does not exist" unless -d $cli->{directory};
 
-	my @existing = list_existing();
-	my @desired  = load_desired();
-	my @updates = compute_required_updates(\@existing, \@desired);
+	my @desired  = load_zone_files($cli->{directory});
+	my $aws = list_aws_records($cli->{zone});
+	my @existing = @{$aws->{records}};
+	my @updates  = compute_required_updates(\@existing, \@desired);
 
-	my $changeCount = scalar(@updates);
-
-	if($changeCount == 0) {
+	if(scalar(@updates) == 0) {
 		print "No updates required\n";
-		exit 0;
+		return 0;
 	}
 
+	update_aws(\@updates, $aws->{origin});
+	return 0;
+}
+
+# Loads list of existing existing records using AWS CLI tool
+# Returns { records => [], origin => string } hash
+sub list_aws_records {
+	my ($zoneId) = @_;
+
+	# Fetch AWS meta data
+	verbose("Fetching Route53 zone meta data...\n");
+	my $zone = `aws route53 get-hosted-zone --id ${zoneId}`;
+	die "Failed to fetch Route53 zone meta data" unless ($? >> 8 == 0);
+	$zone = decode_json($zone);
+	my $origin = $zone->{HostedZone}{Name};
+
+	# Fetch AWS Records
+  verbose("Listing existing DNS records...\n");
+	my @awsRecords;
+	my $existing = `aws route53 list-resource-record-sets --hosted-zone-id $zoneId`;
+	die "Failed to list Route53 records" unless ($? >> 8 == 0);
+	$existing = decode_json($existing);
+	push @awsRecords, @{$existing->{ResourceRecordSets}};
+	while($existing->{NextToken}) {
+	  $existing = `aws route53 list-resource-record-sets --hosted-zone-id $zoneId --starting-token $existing->{NextToken}`;
+	  die "Failed to list Route53 records" unless ($? >> 8 != 0);
+		$existing = decode_json($existing);
+		push @awsRecords, @{$existing->{ResourceRecordSets}};
+	}
+
+	# Convert from AWS record format to zone file object format
+	my @results;
+	for my $rec (@awsRecords) {
+		for my $val (@{$rec->{ResourceRecords}}) {
+			my $label = substr($rec->{Name}, 0, -length($origin)-1);
+			$label = '@' if length($label) == 0;
+			push @results, {
+				label => $label,
+				ttl   => $rec->{TTL},
+				class => 'IN',
+				type  => $rec->{Type},
+				data  => $val->{Value},
+			};
+		}
+	}
+
+	return { records => \@results, origin => $origin };
+}
+
+sub update_aws {
+	my ($records, $origin) = @_;
+
+
+	# Convert from list of zone file style record objects to AWS API objects
+	my @updates;
+	my $grouped = group_records($records);
+	for my $n (keys %$grouped) {
+		for my $t (keys %{$grouped->{$n}}) {
+			my $ttl = 999999999;
+			my @values;
+
+			for my $r (@{$grouped->{$n}{$t}}) {
+				$ttl = $r->{ttl} if $r->{ttl} < $ttl;
+				push @values, { Value => $r->{data} };
+			}
+
+			push @updates, {
+				Name            => "${n}.${origin}",
+				Type            => $t,
+				TTL             => $ttl,
+				ResourceRecords => \@values,
+			};
+		}
+	}
+
+	my $changeCount = scalar(@$records);
 	print "Performing AWS update ($changeCount record" . ($changeCount == 1 ? '' : 's') . " to change)\n";
 
-	@updates = map { { Action => "UPSERT", "ResourceRecordSet" => $_ } } @updates;
+	my @changes = map { { Action => "UPSERT", "ResourceRecordSet" => $_ } } @updates;
 	my $awsUpdate = {
 		Comment => "route53-sync update",
-		Changes => \@updates,
+		Changes => \@changes,
 	};
-	my $updateJson = $json->encode($awsUpdate);
+	my $updateJson = encode_json($awsUpdate);
 
 	my ($fh, $updateFilename) = tempfile("route53-sync-XXXXXXXX", DIR => '/tmp');
 	print $fh $updateJson;
@@ -58,7 +130,7 @@ sub main {
   exit ($retcode >> 8) if ($retcode >> 8 != 0);
 
 	if($cli->{wait}) {
-		my $change = $json->decode($out);
+		my $change = decode_json($out);
 		verbose("Waiting for Route53 update '$change->{ChangeInfo}{Id}' to complete\n");
 		my $elapsed = 20;
 		sleep($elapsed);
@@ -68,75 +140,40 @@ sub main {
 			$elapsed += 5;
 			$out = `aws route53 get-change --id $change->{ChangeInfo}{Id}`;
 			exit ($? >> 8) if ($? >> 8 != 0);
-			$change = $json->decode($out);
+			$change = decode_json($out);
 		}
 	}
 
 	print "Update complete\n";
 }
 
-# Lists existing records using AWS CLI tool
-sub list_existing {
-  verbose("Listing existing DNS records...\n");
-
-	my $existing = `aws route53 list-resource-record-sets --hosted-zone-id $cli->{zone}`;
-	exit ($? >> 8) if ($? >> 8 != 0);
-	$existing = $json->decode($existing);
-
-	my @results;
-	push @results, @{$existing->{ResourceRecordSets}};
-
-	while($existing->{NextToken}) {
-		verbose("Fetching next page $existing->{NextToken}\n");
-	  $existing = `aws route53 list-resource-record-sets --hosted-zone-id $cli->{zone} --starting-token $existing->{NextToken}`;
-		exit ($? >> 8) if ($? >> 8 != 0);
-		$existing = $json->decode($existing);
-		push @results, @{$existing->{ResourceRecordSets}};
-	}
-
-	return @results;
-}
-
-# Loads desired records from directory
-sub load_desired {
-	opendir(my $dh, $cli->{directory});
+# Loads desired records from zone files within directory
+# Returns list of objects of the form:
+# { label,      ttl, class, type, data }
+#   example.com 600  IN     A     127.0.0.1
+sub load_zone_files {
+	my ($directory) = @_;
+	opendir(my $dh, $directory);
 	my @files = readdir($dh);
 	closedir($dh);
 
 	my @results;
 
 	foreach my $file (@files) {
-		next unless $file =~ /.+\.json$/;
+		next unless $file =~ /.+\.zone$/;
 		my $path = "$cli->{directory}/${file}";
 
 		open(my $fh, '<', $path) or die $!;
 		my $raw = do { local $/; <$fh> };
 		close($fh);
 
-		my $data;
-		try {
-			$data = $json->decode($raw);
-		} catch {
-			die "Failed to parse json from $path: $_";
-		};
+		my @lines = split(/\n/, $raw);
 
-		if(ref($data) eq 'ARRAY') {
-			push @results, @$data;
-		} else {
-			push @results, $data;
-		}
-	}
-
-	# Ensure our data matches the format expected by AWS
-	foreach my $rec (@results) {
-		# AWS API uses . suffixed domain names (eg: test.example.com.)
-	  $rec->{Name} .= '.' if(substr($rec->{Name}, -1) ne '.');
-
-		# CNAME's must be wrapped in quotes
-		if($rec->{Type} eq "TXT") {
-			foreach my $v (@{$rec->{ResourceRecords}}) {
-				$v->{Value} = qq/"$v->{Value}"/ unless $v->{Value} =~ /".+"/;
-			}
+		foreach my $line (@lines) {
+			my ($label, $ttl, $class, $type, $data) = split(/\t/, $line);
+			die "Only Internet (aka: IN class) records are supported, got: $label $ttl $class $type $data in file $file" unless $class eq "IN";
+			die "TXT record data must be wrapped in quotes" if $type eq "TXT" and $data !~ /^"[^"]+"$/;
+			push @results, { label => $label, ttl => $ttl + 0, class => $class, type => $type, data => $data };
 		}
 	}
 
@@ -147,19 +184,39 @@ sub load_desired {
 sub compute_required_updates {
 	my ($existing, $desired) = @_;
 
-	my $eMap = {};
-
-	for my $record (@$existing) {
-		$eMap->{$record->{Name}}{$record->{Type}} = $record;
-	}
+	my $existingMap = group_records($existing);
+	my $desiredMap  = group_records($desired);
 
 	my @results;
+  for my $n (keys %$desiredMap) {
+		for my $t (keys %{$desiredMap->{$n}}) {
 
-	for my $record (@$desired) {
-		push @results, $record unless Compare($record, $eMap->{$record->{Name}}{$record->{Type}});
+			my $d = $desiredMap->{$n}{$t};
+			my $e = $existingMap->{$n}{$t};
+
+			push @results, @$d unless Compare($d, $e);
+
+		}
 	}
 
 	return @results;
+}
+
+# Helper which groups a list of DNS records into map of $map->{name}{type} => array of records
+sub group_records {
+	my ($records) = @_;
+
+	my $map = {};
+	push @{$map->{$_->{label}}{$_->{type}}}, $_ foreach @$records;
+
+	for my $n (keys %$map) {
+		for my $t (keys %{$map->{$n}}) {
+			my @list = sort { $a->{data} cmp $b->{data} } @{$map->{$n}{$t}};
+			$map->{$n}{$t} = \@list;
+		}
+	}
+
+	return $map;
 }
 
 sub verbose {
