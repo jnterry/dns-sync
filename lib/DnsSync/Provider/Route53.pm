@@ -14,7 +14,7 @@ use warnings;
 use File::Temp qw(tempfile);
 use JSON::XS qw(decode_json encode_json);
 
-use DnsSync::Utils qw(verbose group_records compute_required_updates);
+use DnsSync::Utils qw(verbose group_records compute_record_set_delta);
 
 use Exporter qw(import);
 our @EXPORT_OK = qw(
@@ -115,45 +115,32 @@ sub write_records {
 	die "Invalid Route53 URI: $uri" unless $uri =~ $URI_REGEX;
 	my $zoneId = $1;
 
-	# Compute the set of changes that need to be made
+	# Fetch existing items
 	my $existing = get_records($uri);
-	my @updates  = compute_required_updates($existing->{records}, $records);
-	if(scalar(@updates)== 0) {
+	my $origin = $args->{origin} || $existing->{origin};
+
+	# Compute the set of changes that need to be made
+	my $delta    = compute_record_set_delta($existing->{records}, $records);
+	unless(
+		(scalar(@{$delta->{upserts}}) != 0) ||
+		($args->{delete} && scalar(@{$delta->{deletions}}) != 0)
+	) {
 		print "No updates required\n";
 		return;
 	}
 
-	my $origin = $args->{origin} || $existing->{origin};
-
 	# Convert from list of zone file style record objects to AWS API objects
-	my @actions;
-	my $grouped = group_records(\@updates);
-	for my $n (keys %$grouped) {
-		for my $t (keys %{$grouped->{$n}}) {
-			my $ttl = 999999999;
-			my @values;
-
-			for my $r (@{$grouped->{$n}{$t}}) {
-				$ttl = $r->{ttl} if $r->{ttl} < $ttl;
-				push @values, { Value => $r->{data} };
-			}
-
-			push @actions, {
-				Name            => "${n}.${origin}",
-				Type            => $t,
-				TTL             => $ttl,
-				ResourceRecords => \@values,
-			};
-		}
-	}
-	@actions = map { { Action => "UPSERT", "ResourceRecordSet" => $_ } } @actions;
+	my @changes;
+	push @changes, _make_aws_change_batch($delta->{upserts},   $origin, "UPSERT");
+	push @changes, _make_aws_change_batch($delta->{deletions}, $origin, "DELETE");
 	my $awsUpdate = {
 		Comment => "route53-sync update",
-		Changes => \@actions,
+		Changes => \@changes,
 	};
 	my $updateJson = encode_json($awsUpdate);
 
-	my $changeCount = scalar(@actions);
+	# Write change set to JSON so aws cli tool can read
+	my $changeCount = scalar(@changes);
 	print "Performing AWS update ($changeCount record" . ($changeCount == 1 ? '' : 's') . " to change)\n";
 
 	my ($fh, $updateFilename) = tempfile("route53-sync-XXXXXXXX", DIR => '/tmp');
@@ -182,6 +169,40 @@ sub write_records {
 	}
 
 	print "Update complete\n";
+}
+
+sub _make_aws_change_batch {
+	my ($records, $origin, $changeType) = @_;
+
+	my $grouped = group_records($records);
+
+	my @results;
+
+	for my $n (keys %$grouped) {
+		for my $t (keys %{$grouped->{$n}}) {
+			my $ttl = 999999999;
+			my @values;
+
+			next if $t eq 'SOA' or $t eq 'NS';
+
+			for my $r (@{$grouped->{$n}{$t}}) {
+				$ttl = $r->{ttl} if $r->{ttl} < $ttl;
+				push @values, { Value => $r->{data} };
+			}
+
+			push @results, {
+				Action => $changeType,
+				"ResourceRecordSet" => {
+					Name            => "${n}.${origin}",
+					Type            => $t,
+					TTL             => $ttl,
+					ResourceRecords => \@values,
+				}
+			};
+		}
+	}
+
+	return @results;
 }
 
 =back

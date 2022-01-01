@@ -8,7 +8,7 @@ use Data::Dumper;
 
 use Exporter qw(import);
 our @EXPORT_OK = qw(
-  set_verbosity verbose parse_zone_file compute_required_updates compute_required_deletions group_records replace_records
+  set_verbosity verbose parse_zone_file compute_record_set_delta group_records ungroup_records replace_records
 );
 
 my $VERBOSITY = 0;
@@ -33,7 +33,7 @@ sub parse_zone_file {
 	my $lineNum = 0;
 	foreach my $line (@lines) {
 		++$lineNum;
-		next if $line =~ /^\s*$/;
+		next if $line =~ /^(\s*|\s*;.+)$/;
 
 		my $errorLoc = defined $path ? "$path:$lineNum" : "line $line";
 
@@ -46,21 +46,61 @@ sub parse_zone_file {
 	return @results;
 }
 
-# Computes list of records which require creation/update
-sub compute_required_updates {
+# Computes list of records which require creation/update/deletion
+# Note this function operates by "record sets", IE: all records for the same host and of the same
+# type are considered as a group
+#
+# In other words, syncing "A 127.0.0.2" to a host with existing "A 127.0.0.1" will update & replace
+# the existing record with the new, rather than resulting in two A records for the same host
+sub compute_record_set_delta {
+	my ($existing, $desired) = @_;
+
+	my $existingMap = ref($existing) eq "ARRAY" ? group_records($existing) : $existing;
+	my $desiredMap  = ref($desired ) eq "ARRAY" ? group_records($desired ) : $desired;
+
+	# 2d hash with same keys as group_records, but maps to a boolean as to whether an
+	# upsert/deletion is required
+	my $upserts = {};
+	my $deletions = {};
+
+  for my $n (keys %$desiredMap) {
+		for my $t (keys %{$desiredMap->{$n}}) {
+			my $d = $desiredMap->{$n}{$t};
+			my $e = $existingMap->{$n}{$t};
+
+			$upserts->{$n}{$t} = $d unless Compare($d, $e);
+		}
+	}
+
+	for my $n (keys %$existingMap) {
+		for my $t (keys %{$existingMap->{$n}}) {
+			my $d = $desiredMap->{$n}{$t};
+			my $e = $existingMap->{$n}{$t};
+
+			$deletions->{$n}{$t} = $e if (not defined $upserts->{$n}{$t}) and(not defined $d or scalar @$d == 0);
+		}
+	}
+
+	my @flatUpserts   = ungroup_records($upserts);
+	my @flatDeletions = ungroup_records($deletions);
+
+	return { upserts => \@flatUpserts, deletions => \@flatDeletions };
+}
+
+# Compute list of items that need to be deleted as they exist in $existing but NOT $desired
+sub compute_required_deletions {
 	my ($existing, $desired) = @_;
 
 	my $existingMap = ref($existing) eq "ARRAY" ? group_records($existing) : $existing;
 	my $desiredMap  = ref($desired ) eq "ARRAY" ? group_records($desired ) : $desired;
 
 	my @results;
-  for my $n (keys %$desiredMap) {
-		for my $t (keys %{$desiredMap->{$n}}) {
-
+	for my $n (keys %$existingMap) {
+		for my $t (keys %{$existingMap->{$n}}) {
 			my $d = $desiredMap->{$n}{$t};
 			my $e = $existingMap->{$n}{$t};
 
-			push @results, @$d unless Compare($d, $e);
+			push @results, @$e unless $d and @$d;
 		}
 	}
 
@@ -82,6 +122,21 @@ sub group_records {
 	}
 
 	return $map;
+}
+
+# Reverses `group_records`
+sub ungroup_records {
+	my ($grouped) = @_;
+
+	my @results;
+	for my $n (keys %$grouped) {
+		for my $t (keys %{$grouped->{$n}}) {
+			for my $r (@{$grouped->{$n}{$t}}) {
+				push @results, { label => $n, type => $t, %$r };
+			}
+		}
+	}
+	return @results;
 }
 
 # Helper which takes two outputs from `group_records`, and replaces any in $a with those in $b

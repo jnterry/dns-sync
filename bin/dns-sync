@@ -16,6 +16,8 @@ my ($cli) = describe_options(
 	[ 'wait', 'Prevent exit until changes have propogated to DNS servers', ],
 	[ 'origin=s', 'Use specified DNS zone origin for write operations. This allows a record set to be transposed from one origin to another when source and target origins differ. Note that some providers force the origin to a particular value based on existing data. and will complain if this is set to a different value' ],
 	[ 'delete', 'Removes records from destination which do not also exist in source. By default will overwrite existing items, but never delete them if there is no replacement' ],
+	[ 'exclude=s', 'Filter for records to ignore from sync' ],
+	[ 'include=s', 'Filter for records to include in sync. If unspecified, includes everything except those explicitly mentioned by --exclude' ],
 );
 set_verbosity(1) if $cli->{verbose};
 
