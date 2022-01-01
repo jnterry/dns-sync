@@ -4,9 +4,11 @@ use strict;
 use warnings;
 use Data::Compare;
 
+use Data::Dumper;
+
 use Exporter qw(import);
 our @EXPORT_OK = qw(
-  set_verbosity verbose compute_required_updates group_records replace_records
+  set_verbosity verbose parse_zone_file compute_required_updates compute_required_deletions group_records replace_records
 );
 
 my $VERBOSITY = 0;
@@ -20,12 +22,36 @@ sub verbose {
 	print "@_" . "\n";
 }
 
+# Parses contents of zone file string
+# Can optionally specify the path for more descriptive error messages including path name
+sub parse_zone_file {
+	my ($raw, $path) = @_;
+
+	my @lines = split(/\n/, $raw);
+
+	my @results;
+	my $lineNum = 0;
+	foreach my $line (@lines) {
+		++$lineNum;
+		next if $line =~ /^\s*$/;
+
+		my $errorLoc = defined $path ? "$path:$lineNum" : "line $line";
+
+		my ($label, $ttl, $class, $type, $data) = split(/\t/, $line);
+		die "Only Internet (aka: IN class) records are supported, found $class at $errorLoc" unless $class eq "IN";
+		die "TXT record data must be wrapped in quotes: $errorLoc" if $type eq "TXT" and $data !~ /^"[^"]+"$/;
+		push @results, { label => $label, ttl => $ttl + 0, class => $class, type => $type, data => $data };
+	}
+
+	return @results;
+}
+
 # Computes list of records which require creation/update
 sub compute_required_updates {
 	my ($existing, $desired) = @_;
 
-	my $existingMap = group_records($existing);
-	my $desiredMap  = group_records($desired);
+	my $existingMap = ref($existing) eq "ARRAY" ? group_records($existing) : $existing;
+	my $desiredMap  = ref($desired ) eq "ARRAY" ? group_records($desired ) : $desired;
 
 	my @results;
   for my $n (keys %$desiredMap) {
@@ -35,7 +61,6 @@ sub compute_required_updates {
 			my $e = $existingMap->{$n}{$t};
 
 			push @results, @$d unless Compare($d, $e);
-
 		}
 	}
 

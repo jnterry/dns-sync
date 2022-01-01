@@ -13,7 +13,7 @@ use warnings;
 
 use File::Path qw(make_path);
 
-use DnsSync::Utils qw(verbose replace_records group_records);
+use DnsSync::Utils qw(verbose replace_records group_records parse_zone_file);
 
 use Exporter qw(import);
 our @EXPORT_OK = qw(
@@ -90,17 +90,7 @@ sub _load_zone_file {
 	my $raw = do { local $/; <$fh> };
 	close($fh);
 
-	my @lines = split(/\n/, $raw);
-
-	my @results;
-	foreach my $line (@lines) {
-		my ($label, $ttl, $class, $type, $data) = split(/\t/, $line);
-		die "Only Internet (aka: IN class) records are supported, got: $label $ttl $class $type $data in file $path" unless $class eq "IN";
-		die "TXT record data must be wrapped in quotes" if $type eq "TXT" and $data !~ /^"[^"]+"$/;
-		push @results, { label => $label, ttl => $ttl + 0, class => $class, type => $type, data => $data };
-	}
-
-	return @results;
+	return parse_zone_file($raw, $path);
 }
 
 =item C<write_records>
@@ -118,11 +108,14 @@ sub write_records {
 	# Otherwise just write to a single file
 	#
 	# Note that to match the behaviour of other providers, we need to merge
-	# the data into the target (:TODO: --delete flag to match rsync)
-	# Hence we must read the file to see what is already exists before writing
+	# the data into the target (unless --delete flag is set) and hence we must read the
+	# file to see what is already exists before writing
 	if($path =~ qr|.+/$| or -d $path) {
 		my $dirPath = $path =~ qr|/^| ? $path : "${path}/";
+
 		make_path($dirPath) unless -d $dirPath;
+		unlink glob "'${dirPath}*.zone'" if $args->{delete};
+
 		for my $n (keys %$grouped) {
 			my $filePath = "${dirPath}${n}.zone";
 			_merge_grouped_records_into_file($filePath, { $n => $grouped->{$n} }, $args);
@@ -137,14 +130,17 @@ sub write_records {
 sub _merge_grouped_records_into_file {
 	my ($path, $grouped, $args) = @_;
 
-	my @current;
-	@current = _load_zone_file($path) if -f $path;
-	my $existing = group_records(\@current);
+	my $final = $grouped;
 
-	my $final = replace_records($existing, $grouped);
+	unless($args->{delete}) {
+		my @current;
+		@current = _load_zone_file($path) if -f $path;
+		my $existing = group_records(\@current);
+
+		$final = replace_records($existing, $grouped);
+	}
 
 	open(my $fh, '>', $path);
-
 	my @names = sort keys %$final;
 	for my $n (@names) {
 		my @types = sort keys %{$final->{$n}};
@@ -154,9 +150,7 @@ sub _merge_grouped_records_into_file {
 			}
 		}
 	}
-
 	close($fh);
-
 }
 
 =back
