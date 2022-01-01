@@ -1,0 +1,66 @@
+# Perl::Critic configuration
+#
+# See https://metacpan.org/pod/Perl::Critic#CONFIGURATION for details of the
+# syntax in use here.
+#
+# See https://metacpan.org/pod/distribution/Perl-Critic/lib/Perl/Critic/PolicySummary.pod
+# for details of the policies available to use.
+#
+# Please add detailed comments when adding to this file.
+
+# Use all 'gentle' and 'stern' severity policies
+severity = 4
+
+####
+# Include some policies from more severe settings that we think are worth
+# following
+####
+
+# Don't use whitespace at the end of lines.
+[CodeLayout::ProhibitTrailingWhitespace]
+severity = 4
+
+# The =head1 NAME section should match the package.
+[Documentation::RequirePackageMatchesPodName]
+severity = 4
+
+# Minimize complexity in code that is outside of subroutines.
+[Modules::ProhibitExcessMainComplexity]
+severity = 4
+
+# Prevent access to private subs in other packages.
+[Subroutines::ProtectPrivateSubs]
+severity = 4
+
+# Prevent access to private vars in other packages.
+[Variables::ProtectPrivateVars]
+severity = 4
+
+####
+# Exclude some policies which we think are overly strict. Do this by bumping
+# them into the next severity group.
+####
+
+# End every path through a subroutine with an explicit return statement.
+[Subroutines::RequireFinalReturn]
+severity = 3
+
+# Don't declare your own open function.
+[Subroutines::ProhibitBuiltinHomonyms]
+severity = 3
+
+# Don't use constant FOO => 15.
+[ValuesAndExpressions::ProhibitConstantPragma]
+severity = 3
+
+# Close file handles within 9 lines of opening them
+[InputOutput::RequireBriefOpen]
+severity = 3
+
+# No leading 0s
+[ValuesAndExpressions::ProhibitLeadingZeros]
+severity = 3
+
+# Don't make code outside subroutines too complex
+[Modules::ProhibitExcessMainComplexity]
+severity = 3
