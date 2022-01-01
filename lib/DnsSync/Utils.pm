@@ -6,7 +6,7 @@ use Data::Compare;
 
 use Exporter qw(import);
 our @EXPORT_OK = qw(
-  set_verbosity verbose compute_required_updates group_records
+  set_verbosity verbose compute_required_updates group_records replace_records
 );
 
 my $VERBOSITY = 0;
@@ -57,6 +57,21 @@ sub group_records {
 	}
 
 	return $map;
+}
+
+# Helper which takes two outputs from `group_records`, and replaces any in $a with those in $b
+sub replace_records {
+	my ($a, $b) = @_;
+
+	my $final = { %$a };
+
+	for my $n (keys %$b) {
+		for my $t (keys %{$b->{$n}}) {
+			$final->{$n}{$t} = $b->{$n}{$t};
+		}
+	}
+
+	return $final;
 }
 
 1;

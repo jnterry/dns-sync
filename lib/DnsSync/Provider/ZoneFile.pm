@@ -11,7 +11,9 @@ sync-dns provider for interacting zone files on local disk
 use strict;
 use warnings;
 
-use DnsSync::Utils qw(verbose);
+use File::Path qw(make_path);
+
+use DnsSync::Utils qw(verbose replace_records group_records);
 
 use Exporter qw(import);
 our @EXPORT_OK = qw(
@@ -74,22 +76,31 @@ sub get_records {
 
 	foreach my $path (@files) {
 		next if $isDir and $path !~ /.+\.(zone|db)$/;
-
-		open(my $fh, '<', $path) or die $!;
-		my $raw = do { local $/; <$fh> };
-		close($fh);
-
-		my @lines = split(/\n/, $raw);
-
-		foreach my $line (@lines) {
-			my ($label, $ttl, $class, $type, $data) = split(/\t/, $line);
-			die "Only Internet (aka: IN class) records are supported, got: $label $ttl $class $type $data in file $path" unless $class eq "IN";
-			die "TXT record data must be wrapped in quotes" if $type eq "TXT" and $data !~ /^"[^"]+"$/;
-			push @results, { label => $label, ttl => $ttl + 0, class => $class, type => $type, data => $data };
-		}
+		push @results, _load_zone_file($path);
 	}
 
 	return { records => \@results, origin => undef };
+}
+
+# Helper which loads contents of a DNS zone file
+sub _load_zone_file {
+	my ($path) = @_;
+
+	open(my $fh, '<', $path) or die $!;
+	my $raw = do { local $/; <$fh> };
+	close($fh);
+
+	my @lines = split(/\n/, $raw);
+
+	my @results;
+	foreach my $line (@lines) {
+		my ($label, $ttl, $class, $type, $data) = split(/\t/, $line);
+		die "Only Internet (aka: IN class) records are supported, got: $label $ttl $class $type $data in file $path" unless $class eq "IN";
+		die "TXT record data must be wrapped in quotes" if $type eq "TXT" and $data !~ /^"[^"]+"$/;
+		push @results, { label => $label, ttl => $ttl + 0, class => $class, type => $type, data => $data };
+	}
+
+	return @results;
 }
 
 =item C<write_records>
@@ -97,12 +108,55 @@ sub get_records {
 Writes records to zone file
 
 =cut
-sub write_changes {
+sub write_records {
 	my ($uri, $records, $args) = @_;
 
 	my $path = _parse_uri($uri);
+	my $grouped = group_records($records);
 
-	die "Unimplemented: write to zone file";
+	# When writing to a directory, we write each hostname to a seperate file
+	# Otherwise just write to a single file
+	#
+	# Note that to match the behaviour of other providers, we need to merge
+	# the data into the target (:TODO: --delete flag to match rsync)
+	# Hence we must read the file to see what is already exists before writing
+	if($path =~ qr|.+/$| or -d $path) {
+		my $dirPath = $path =~ qr|/^| ? $path : "${path}/";
+		make_path($dirPath) unless -d $dirPath;
+		for my $n (keys %$grouped) {
+			my $filePath = "${dirPath}${n}.zone";
+			_merge_grouped_records_into_file($filePath, { $n => $grouped->{$n} }, $args);
+		}
+	} else {
+		_merge_grouped_records_into_file($path, $grouped, $args);
+	}
+}
+
+# Helper which writes a set of grouped records into a file, if it already exists
+# first loads the file and merges the grouped records with existing ones
+sub _merge_grouped_records_into_file {
+	my ($path, $grouped, $args) = @_;
+
+	my @current;
+	@current = _load_zone_file($path) if -f $path;
+	my $existing = group_records(\@current);
+
+	my $final = replace_records($existing, $grouped);
+
+	open(my $fh, '>', $path);
+
+	my @names = sort keys %$final;
+	for my $n (@names) {
+		my @types = sort keys %{$final->{$n}};
+		for my $t (@types) {
+			for my $r (@{$final->{$n}{$t}}) {
+				print $fh "$r->{label}\t$r->{ttl}\tIN\t$r->{type}\t$r->{data}\n";
+			}
+		}
+	}
+
+	close($fh);
+
 }
 
 =back
