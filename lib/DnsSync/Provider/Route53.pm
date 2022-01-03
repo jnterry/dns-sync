@@ -120,19 +120,16 @@ sub write_records {
 	my $origin = $args->{origin} || $existing->{origin};
 
 	# Compute the set of changes that need to be made
-	my $delta    = compute_record_set_delta($existing->{records}, $records);
-	unless(
-		(scalar(@{$delta->{upserts}}) != 0) ||
-		($args->{delete} && scalar(@{$delta->{deletions}}) != 0)
-	) {
-		print "No updates required\n";
-		return;
-	}
+	my $delta = compute_record_set_delta($existing->{records}, $records);
 
 	# Convert from list of zone file style record objects to AWS API objects
 	my @changes;
 	push @changes, _make_aws_change_batch($delta->{upserts},   $origin, "UPSERT");
-	push @changes, _make_aws_change_batch($delta->{deletions}, $origin, "DELETE");
+	push @changes, _make_aws_change_batch($delta->{deletions}, $origin, "DELETE") if $args->{delete};
+	unless(@changes) {
+		print "No updates required\n";
+		return;
+	}
 	my $awsUpdate = {
 		Comment => "route53-sync update",
 		Changes => \@changes,
@@ -183,7 +180,11 @@ sub _make_aws_change_batch {
 			my $ttl = 999999999;
 			my @values;
 
-			next if $t eq 'SOA' or $t eq 'NS';
+			# The NS and SOA records at root of a Route53 zone cannot be deleted!
+			if (($t eq 'SOA' or $t eq 'NS') && ($n eq '@') && ($changeType eq 'DELETE')) {
+				verbose "Skipped delete for $t record at root of Route53 zone -> AWS will not let us!";
+				next;
+			}
 
 			for my $r (@{$grouped->{$n}{$t}}) {
 				$ttl = $r->{ttl} if $r->{ttl} < $ttl;
