@@ -16,8 +16,9 @@ my ($cli) = describe_options(
 	[ 'wait', 'Prevent exit until changes have propogated to DNS servers', ],
 	[ 'origin=s', 'Use specified DNS zone origin for write operations. This allows a record set to be transposed from one origin to another when source and target origins differ. Note that some providers force the origin to a particular value based on existing data. and will complain if this is set to a different value' ],
 	[ 'delete', 'Removes records from destination which do not also exist in source. By default will overwrite existing items, but never delete them if there is no replacement' ],
-	[ 'exclude=s', 'Filter for records to ignore from sync' ],
-	[ 'include=s', 'Filter for records to include in sync. If unspecified, includes everything except those explicitly mentioned by --exclude' ],
+	[ 'managed-set|managed=s', 'Uses a third DNS storage mechanism (eg, file, route53) to maintain a list of records which are being managed by dns-sync. Subsequent runs with --delete flag set will ONLY delete records which existing in the managed set, thus allowing DNS sync to operate in conjunction with some outside system (or manual changes)' ],
+	#[ 'exclude=s', 'Filter for records to ignore from sync' ],
+	#[ 'include=s', 'Filter for records to include in sync. If unspecified, includes everything except those explicitly mentioned by --exclude' ],
 );
 set_verbosity(1) if $cli->{verbose};
 
@@ -28,30 +29,49 @@ sub main {
 	die "Must specify 2 positional arguments: source and target" unless $source && $target;
 
 	# Find the provider for the source and dest
-	my @providers = providers();
-	my $sourceProvider;
-	my $targetProvider;
-	for my $p (@providers) {
-		my $can_handle = $p->can('can_handle');
-	  if($can_handle->($source)) {
-			die "Source is ambigious, could be handled by both $sourceProvider and $p" if $sourceProvider;
-			$sourceProvider = $p;
-		}
-		if($can_handle->($target)) {
-			die "Target is ambigious, could be handled by both $targetProvider and $p" if $targetProvider;
-			$targetProvider = $p;
-		}
+	my $sourceProvider  = get_provider_for_uri($source, 'source');
+	my $targetProvider  = get_provider_for_uri($target, 'target');
+	my $managedProvider = get_provider_for_uri($cli->{managed_set}, 'managed-set');
+
+	# Fetch data for managed set
+	my $managedData;
+	if($managedProvider) {
+		$managedData = $managedProvider->can('get_records')->($cli->{managed_set}, {
+			allowNonExistent => 1,
+		});
 	}
-	die "No provider found for source $source" unless $sourceProvider;
-	die "No provider found for target $target" unless $targetProvider;
 
 	# Perform sync
-	my $sourceData = $sourceProvider->can('get_records')->($source);
+	my $sourceData  = $sourceProvider->can('get_records')->($source);
+	my %targetArgs = (
+		wait    => $cli->{wait},
+		delete  => $cli->{delete},
+		origin  => $sourceData->{origin} || $cli->{origin},
+	);
 	$targetProvider->can('write_records')->($target, $sourceData->{records}, {
-		wait   => $cli->{wait},
-		delete => $cli->{delete},
-		origin => $sourceData->{origin} || $cli->{origin},
+		%targetArgs,
+		managed => $managedData->{records},
 	});
 
+	# Update managed set
+	$managedProvider->can('write_records')->($cli->{managed_set}, $sourceData->{records}, \%targetArgs) if $cli->{managed_set};
+
 	return 0;
+}
+
+sub get_provider_for_uri {
+	my ($uri, $label) = @_;
+
+	return unless $uri;
+
+	my @providers = providers();
+  @providers = grep { $_->can('can_handle')->($uri) } @providers;
+	my $count = @providers;
+	if($count == 0) {
+		die "No DNS provider found for which can handle '$uri' (for $label)";
+	} elsif ($count > 1) {
+		die "$label '$uri' is ambigious and can be handled by multiple DNS implementations: " . join(',', @providers);
+	} else {
+		return $providers[0];
+	}
 }

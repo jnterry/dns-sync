@@ -55,7 +55,7 @@ Returns list of objects of the form:
 
 =cut
 sub get_records {
-	my ($uri) = @_;
+	my ($uri, $args) = @_;
 
 	my $path = _parse_uri($uri);
 
@@ -69,7 +69,11 @@ sub get_records {
 		@files = map { "$path/$_" } readdir($dh);
 		closedir($dh);
 	} else {
-		die "No such file or directory: $path";
+		if($args->{allowNonExistent}) {
+			return { records => [], origin => undef };
+		} else {
+			die "No such file or directory: $path";
+		}
 	}
 
 	my @results;

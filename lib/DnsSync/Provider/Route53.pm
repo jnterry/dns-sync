@@ -106,6 +106,10 @@ which have changed
 
 =item C<args.wait> If set, will wait for change to propogate to DNS servers before returning
 
+=item C<args.delete> Deletes existing records from target but NOT in $records
+
+=item C<args.managed> Which records do we manage? Prevents deletion of any records NOT in $managed
+
 =back
 
 =cut
@@ -120,7 +124,9 @@ sub write_records {
 	my $origin = $args->{origin} || $existing->{origin};
 
 	# Compute the set of changes that need to be made
-	my $delta = compute_record_set_delta($existing->{records}, $records);
+	my $delta = compute_record_set_delta($existing->{records}, $records, {
+		managed => $args->{managed},
+	});
 
 	# Convert from list of zone file style record objects to AWS API objects
 	my @changes;

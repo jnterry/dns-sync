@@ -3,7 +3,7 @@
 use strict;
 use warnings;
 
-use Test::More tests => 12;
+use Test::More tests => 14;
 use Test::Deep qw(cmp_set);
 use List::MoreUtils qw(uniq);
 
@@ -93,16 +93,31 @@ test-a	300	IN	A	127.0.0.5
 test-b	999	IN	TXT	"abc"
 test-d	900	IN	MX	127.0.0.1
 });
-my $delta = compute_record_set_delta($grouped, $new);
 
+my $delta = compute_record_set_delta($grouped, $new);
 cmp_set($delta->{upserts}, [
 	{ label => 'test-a', ttl => 300, class => 'IN', type => 'A',    data => '127.0.0.1' },
 	{ label => 'test-a', ttl => 300, class => 'IN', type => 'A',    data => '127.0.0.5' }, # modified content, so whole A set changes
 	{ label => 'test-b', ttl => 999, class => 'IN', type => 'TXT',  data => '"abc"'     }, # new TTL
 	{ label => 'test-d', ttl => 900, class => 'IN', type => 'MX',   data => '127.0.0.1' }, # brand new host
 ], "Upserts include replacements for all conflicting records in the same set");
-
 cmp_set($delta->{deletions}, [
 	{ label => 'test-a', ttl => 600, class => 'IN', type => 'AAAA', data => '::1'       }, # no longer present (even though A records are!)
 	{ label => 'test-c', ttl => 150, class => 'IN', type => 'MX',   data => '127.0.0.1' }, # entire host deleted
 ], "Deletions include only fully removed record sets");
+
+$delta = compute_record_set_delta($grouped, $new, {
+	managed => {
+		'test-a' => { 'A' => [{}], 'AAAA' => [{}] },
+		'test-b' => { 'TXT' => [{}] },
+	},
+});
+cmp_set($delta->{upserts}, [
+	{ label => 'test-a', ttl => 300, class => 'IN', type => 'A',    data => '127.0.0.1' },
+	{ label => 'test-a', ttl => 300, class => 'IN', type => 'A',    data => '127.0.0.5' }, # modified content, so whole A set changes
+	{ label => 'test-b', ttl => 999, class => 'IN', type => 'TXT',  data => '"abc"'     }, # new TTL
+	{ label => 'test-d', ttl => 900, class => 'IN', type => 'MX',   data => '127.0.0.1' }, # brand new host
+], "Upserts include replacements for all conflicting records in the same set");
+cmp_set($delta->{deletions}, [
+	{ label => 'test-a', ttl => 600, class => 'IN', type => 'AAAA', data => '::1'       }, # no longer present (even though A records are!)
+], "Deletions exclude records not in managed set");

@@ -53,10 +53,14 @@ sub parse_zone_file {
 # In other words, syncing "A 127.0.0.2" to a host with existing "A 127.0.0.1" will update & replace
 # the existing record with the new, rather than resulting in two A records for the same host
 sub compute_record_set_delta {
-	my ($existing, $desired) = @_;
+	my ($existing, $desired, $opts) = @_;
 
 	my $existingMap = ref($existing) eq "ARRAY" ? group_records($existing) : $existing;
 	my $desiredMap  = ref($desired ) eq "ARRAY" ? group_records($desired ) : $desired;
+	my $managedMap;
+	if($opts->{managed}) {
+		$managedMap = ref($opts->{managed}) eq "ARRAY" ? group_records($opts->{managed}) : $opts->{managed};
+	}
 
 	# 2d hash with same keys as group_records, but maps to a boolean as to whether an
 	# upsert/deletion is required
@@ -77,7 +81,15 @@ sub compute_record_set_delta {
 			my $d = $desiredMap->{$n}{$t};
 			my $e = $existingMap->{$n}{$t};
 
-			$deletions->{$n}{$t} = $e if (not defined $upserts->{$n}{$t}) and(not defined $d or scalar @$d == 0);
+			# skip delete if we're already upserting the record, or it exists in desired set
+			next if (defined $upserts->{$n}{$t}) or (defined $d and scalar @$d != 0);
+
+			# If a managed set if defined, then don't delete anything we don't manage ourselves
+			if(defined $managedMap) {
+				next unless defined $managedMap->{$n}{$t};
+			}
+
+			$deletions->{$n}{$t} = $e
 		}
 	}
 
