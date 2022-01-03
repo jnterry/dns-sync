@@ -12,8 +12,9 @@ use strict;
 use warnings;
 
 use File::Path qw(make_path);
+use Data::Dumper;
 
-use DnsSync::Utils qw(verbose replace_records group_records parse_zone_file);
+use DnsSync::Utils qw(verbose replace_records group_records parse_zone_file compute_record_set_delta apply_deltas);
 
 use Exporter qw(import);
 our @EXPORT_OK = qw(
@@ -105,51 +106,45 @@ Writes records to zone file
 sub write_records {
 	my ($uri, $records, $args) = @_;
 
-	my $path = _parse_uri($uri);
-	my $grouped = group_records($records);
+	# To match the behaviour of other providers, we need to merge the data into the target
+	# (subject to the --delete and --managed-set flags) - hence we must read the existing
+	# data before writing
+	my $path     = _parse_uri($uri);
+	my $existing = group_records(get_records($uri)->{records});
 
-	# When writing to a directory, we write each hostname to a seperate file
-	# Otherwise just write to a single file
-	#
-	# Note that to match the behaviour of other providers, we need to merge
-	# the data into the target (unless --delete flag is set) and hence we must read the
-	# file to see what is already exists before writing
+	# Compute final set of records after deltas are applied
+	my $delta = compute_record_set_delta($existing, $records, {
+		managed => $args->{managed},
+	});
+	$delta->{deletions} = [] unless $args->{delete};
+	my @finalRecords = apply_deltas($existing, $delta);
+	my $groupedFinal = group_records(\@finalRecords);
+
 	if($path =~ qr|.+/$| or -d $path) {
 		my $dirPath = $path =~ qr|/^| ? $path : "${path}/";
 
 		make_path($dirPath) unless -d $dirPath;
-		unlink glob "'${dirPath}*.zone'" if $args->{delete};
+		unlink glob "'${dirPath}*.zone'";
 
-		for my $n (keys %$grouped) {
+		for my $n (keys %$groupedFinal) {
 			my $filePath = "${dirPath}${n}.zone";
-			_merge_grouped_records_into_file($filePath, { $n => $grouped->{$n} }, $args);
+			_write_records_to_file($filePath, { $n => $groupedFinal->{$n} });
 		}
 	} else {
-		_merge_grouped_records_into_file($path, $grouped, $args);
+		_write_records_to_file($path, $groupedFinal);
 	}
 }
 
-# Helper which writes a set of grouped records into a file, if it already exists
-# first loads the file and merges the grouped records with existing ones
-sub _merge_grouped_records_into_file {
+# Helper which writes a set of grouped records into a file
+sub _write_records_to_file {
 	my ($path, $grouped, $args) = @_;
 
-	my $final = $grouped;
-
-	unless($args->{delete}) {
-		my @current;
-		@current = _load_zone_file($path) if -f $path;
-		my $existing = group_records(\@current);
-
-		$final = replace_records($existing, $grouped);
-	}
-
 	open(my $fh, '>', $path);
-	my @names = sort keys %$final;
+	my @names = sort keys %$grouped;
 	for my $n (@names) {
-		my @types = sort keys %{$final->{$n}};
+		my @types = sort keys %{$grouped->{$n}};
 		for my $t (@types) {
-			for my $r (@{$final->{$n}{$t}}) {
+			for my $r (@{$grouped->{$n}{$t}}) {
 				print $fh "$r->{label}\t$r->{ttl}\tIN\t$r->{type}\t$r->{data}\n";
 			}
 		}

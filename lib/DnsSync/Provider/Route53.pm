@@ -93,7 +93,7 @@ sub get_records {
 
 =item C<write_records>
 
-Writes records to AWS. Note that intnerally this first calls get_records, and only updates those
+Writes records to AWS. Note that internally this first calls get_records, and only updates those
 which have changed
 
 =over 4

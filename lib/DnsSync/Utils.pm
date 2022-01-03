@@ -2,13 +2,15 @@ package DnsSync::Utils;
 
 use strict;
 use warnings;
+
+use Clone qw(clone);
 use Data::Compare;
 
 use Data::Dumper;
 
 use Exporter qw(import);
 our @EXPORT_OK = qw(
-  set_verbosity verbose parse_zone_file compute_record_set_delta group_records ungroup_records replace_records
+  set_verbosity verbose parse_zone_file compute_record_set_delta group_records ungroup_records replace_records apply_deltas
 );
 
 my $VERBOSITY = 0;
@@ -156,7 +158,6 @@ sub replace_records {
 	my ($a, $b) = @_;
 
 	my $final = { %$a };
-
 	for my $n (keys %$b) {
 		for my $t (keys %{$b->{$n}}) {
 			$final->{$n}{$t} = $b->{$n}{$t};
@@ -164,6 +165,33 @@ sub replace_records {
 	}
 
 	return $final;
+}
+
+# Helper which takes two outputs from `group_records`, and deletes any in $a also in $b
+sub delete_records {
+	my ($a, $b) = @_;
+
+	my $final = { %$a };
+	for my $n (keys %$b) {
+		for my $t (keys %{$b->{$n}}) {
+			delete $final->{$n}{$t} if $b->{$n}{$t};
+		}
+	}
+
+	return $final;
+}
+
+# Helper which applies set of changes in $deltas object to an input set of records
+# Returns list of final records
+# Does not modify $initial, instead returns copy
+sub apply_deltas {
+	my ($initial, $deltas) = @_;
+
+	my $inMap = ref($initial) eq "ARRAY" ? group_records($initial) : $initial;
+	my $updated = clone($inMap);
+	$updated = replace_records($updated, group_records($deltas->{upserts}));
+  $updated = delete_records($updated, group_records($deltas->{deletions}));
+	return ungroup_records($updated);
 }
 
 1;
