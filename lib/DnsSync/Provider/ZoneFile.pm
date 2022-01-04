@@ -11,6 +11,7 @@ sync-dns provider for interacting zone files on local disk
 use strict;
 use warnings;
 
+use File::Basename;
 use File::Path qw(make_path);
 use Data::Dumper;
 
@@ -110,7 +111,7 @@ sub write_records {
 	# (subject to the --delete and --managed-set flags) - hence we must read the existing
 	# data before writing
 	my $path     = _parse_uri($uri);
-	my $existing = group_records(get_records($uri)->{records});
+	my $existing = group_records(get_records($uri, { allowNonExistent => 1 })->{records});
 
 	# Compute final set of records after deltas are applied
 	my $delta = compute_record_set_delta($existing, $records, {
@@ -120,10 +121,13 @@ sub write_records {
 	my @finalRecords = apply_deltas($existing, $delta);
 	my $groupedFinal = group_records(\@finalRecords);
 
+	my $parentDir = dirname($path);
+	make_path($parentDir) if $parentDir;
+
 	if($path =~ qr|.+/$| or -d $path) {
 		my $dirPath = $path =~ qr|/^| ? $path : "${path}/";
 
-		make_path($dirPath) unless -d $dirPath;
+		make_path($dirPath);
 		unlink glob "'${dirPath}*.zone'";
 
 		for my $n (keys %$groupedFinal) {

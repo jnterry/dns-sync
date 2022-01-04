@@ -7,8 +7,6 @@ use Test::More tests => 16;
 use Test::Deep qw(cmp_set);
 use List::MoreUtils qw(uniq);
 
-use Data::Dumper;
-
 require_ok('DnsSync::Utils');
 
 use DnsSync::Utils qw(parse_zone_file group_records ungroup_records compute_record_set_delta apply_deltas);
@@ -20,7 +18,7 @@ sub parse_and_group {
 }
 
 # ------------------------------------------------------
-# - TEST: parse_zone_file                                -
+# - TEST: parse_zone_file                              -
 # ------------------------------------------------------
 my @records = parse_zone_file(q{
 test-a	300	IN	A	127.0.0.1
