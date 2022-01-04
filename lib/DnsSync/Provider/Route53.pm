@@ -10,9 +10,10 @@ use strict;
 use warnings;
 
 use File::Temp qw(tempfile);
-use JSON::XS qw(decode_json encode_json);
+use JSON::XS   qw(decode_json encode_json);
 
-use DnsSync::Utils qw(verbose group_records compute_record_set_delta);
+use DnsSync::RecordSet qw(group_records compute_record_set_delta);
+use DnsSync::Utils     qw(verbose);
 
 use Exporter qw(import);
 our @EXPORT_OK = qw(

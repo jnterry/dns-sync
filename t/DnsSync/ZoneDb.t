@@ -7,8 +7,6 @@ use Test::More;
 use Test::Deep qw(cmp_set);
 use List::MoreUtils qw(uniq);
 
-use Data::Dumper;
-
 require_ok('DnsSync::ZoneDb');
 
 use DnsSync::ZoneDb qw(parse_zonedb parse_resource_record);

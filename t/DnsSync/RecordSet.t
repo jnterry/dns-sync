@@ -6,10 +6,10 @@ use warnings;
 use Test::More tests => 10;
 use Test::Deep qw(cmp_set);
 
-require_ok('DnsSync::Utils');
+require_ok('DnsSync::RecordSet');
 
-use DnsSync::ZoneDb qw(parse_zonedb);
-use DnsSync::Utils  qw(group_records ungroup_records compute_record_set_delta apply_deltas);
+use DnsSync::ZoneDb    qw(parse_zonedb);
+use DnsSync::RecordSet qw(group_records ungroup_records compute_record_set_delta apply_deltas);
 
 my @rs = (
 	{ label => 'test-a', ttl => 300, class => 'IN', type => 'A',    data => "127.0.0.1" },

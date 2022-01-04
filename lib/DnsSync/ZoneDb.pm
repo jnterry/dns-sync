@@ -4,14 +4,12 @@ package DnsSync::ZoneDb;
 
 Functions for parsing and writing zone db format
 
-=over
-
 =cut
 
 use strict;
 use warnings;
 
-use DnsSync::Utils qw(group_records);
+use DnsSync::RecordSet qw(group_records);
 
 use Try::Tiny;
 
@@ -30,6 +28,10 @@ my $REG_TYPE = qr/A|NS|CNAME|SOA|PTR|HINFO|MX|TXT|RP|AFSDB|SIG|KEY|AAAA|LOC|SRV|
 my $REG_CLASS = qr/IN|CH|HS/;
 
 my $REG_TTL   = qr/\d+/;
+
+=head1 FUNCTIONS
+
+=over 4
 
 =item C<parse_resource_record>
 

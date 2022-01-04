@@ -13,10 +13,10 @@ use warnings;
 
 use File::Basename;
 use File::Path qw(make_path);
-use Data::Dumper;
 
-use DnsSync::ZoneDb qw(parse_zonedb encode_resource_records);
-use DnsSync::Utils qw(verbose replace_records group_records compute_record_set_delta apply_deltas);
+use DnsSync::RecordSet qw(replace_records group_records compute_record_set_delta apply_deltas);
+use DnsSync::Utils     qw(verbose);
+use DnsSync::ZoneDb    qw(parse_zonedb encode_resource_records);
 
 use Exporter qw(import);
 our @EXPORT_OK = qw(

@@ -16,8 +16,9 @@ use JSON::XS qw(decode_json);
 use LWP::UserAgent;
 use Try::Tiny;
 
-use DnsSync::Utils  qw(verbose get_ua compute_record_set_delta apply_deltas);
-use DnsSync::ZoneDb qw(parse_zonedb encode_zonedb);
+use DnsSync::Utils     qw(verbose get_ua);
+use DnsSync::RecordSet qw(compute_record_set_delta apply_deltas);
+use DnsSync::ZoneDb    qw(parse_zonedb encode_zonedb);
 
 use Exporter qw(import);
 our @EXPORT_OK = qw(
