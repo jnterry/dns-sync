@@ -11,13 +11,7 @@ use Data::Dumper;
 
 require_ok('DnsSync::ZoneDb');
 
-use DnsSync::ZoneDb qw(parse_zone_db parse_resource_record);
-
-sub parse_and_group {
-	my ($raw) = @_;
-	my $data = parse_zone_file($raw);
-	return group_records($data->{records});
-}
+use DnsSync::ZoneDb qw(parse_zonedb parse_resource_record);
 
 # ------------------------------------------------------
 # - TEST: parse_zone_record                            -
@@ -78,9 +72,9 @@ is_deeply(
 );
 
 # ------------------------------------------------------
-# - TEST: parse_zone_db                                -
+# - TEST: parse_zonedb                                 -
 # ------------------------------------------------------
-my $data = parse_zone_db(q{
+my $data = parse_zonedb(q{
 test-a	300	IN	A	127.0.0.1
 test-a	300	IN	A	127.0.0.2
 test-a	600	IN	AAAA	::1
@@ -99,7 +93,7 @@ is_deeply($rs[4], { label => 'test-c', ttl => 150, class => 'IN', type => 'MX', 
 
 
 # Try again with missing data and variables
-$data = parse_zone_db(q{
+$data = parse_zonedb(q{
 $ORIGIN  example.com
 $TTL     999
 test-a	300	IN	A     127.0.0.1

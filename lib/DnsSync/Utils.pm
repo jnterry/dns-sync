@@ -5,6 +5,7 @@ use warnings;
 
 use Clone qw(clone);
 use Data::Compare;
+use LWP::UserAgent;
 
 use Exporter qw(import);
 our @EXPORT_OK = qw(
@@ -166,6 +167,15 @@ sub apply_deltas {
 	$updated = replace_records($updated, group_records($deltas->{upserts}));
   $updated = delete_records($updated, group_records($deltas->{deletions}));
 	return ungroup_records($updated);
+}
+
+my $ua;
+# Helper to get a user agent for making HTTP requests
+sub get_ua {
+	return $ua if defined $ua;
+	$ua = LWP::UserAgent->new;
+	$ua->agent('dns-sync');
+	return $ua;
 }
 
 1;

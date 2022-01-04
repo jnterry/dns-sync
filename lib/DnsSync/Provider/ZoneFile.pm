@@ -15,7 +15,7 @@ use File::Basename;
 use File::Path qw(make_path);
 use Data::Dumper;
 
-use DnsSync::ZoneDb qw(parse_zone_db);
+use DnsSync::ZoneDb qw(parse_zonedb encode_resource_records);
 use DnsSync::Utils qw(verbose replace_records group_records compute_record_set_delta apply_deltas);
 
 use Exporter qw(import);
@@ -98,7 +98,7 @@ sub _load_zone_file {
 	my $raw = do { local $/; <$fh> };
 	close($fh);
 
-	return parse_zone_db($raw, $path);
+	return parse_zonedb($raw, $path);
 }
 
 =item C<write_records>
@@ -146,15 +146,7 @@ sub _write_records_to_file {
 	my ($path, $grouped, $args) = @_;
 
 	open(my $fh, '>', $path);
-	my @names = sort keys %$grouped;
-	for my $n (@names) {
-		my @types = sort keys %{$grouped->{$n}};
-		for my $t (@types) {
-			for my $r (@{$grouped->{$n}{$t}}) {
-				print $fh "$r->{label}\t$r->{ttl}\tIN\t$r->{type}\t$r->{data}\n";
-			}
-		}
-	}
+	print $fh encode_resource_records($grouped);
 	close($fh);
 }
 

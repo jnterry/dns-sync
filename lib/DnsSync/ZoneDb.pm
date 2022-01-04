@@ -10,10 +10,15 @@ Functions for parsing and writing zone db format
 
 use strict;
 use warnings;
-use Exporter qw(import);
+
+use DnsSync::Utils qw(group_records);
+
 use Try::Tiny;
+
+use Exporter qw(import);
 our @EXPORT_OK = qw(
-  parse_zone_db parse_resource_record
+  parse_resource_record encode_resource_record encode_resource_records
+	parse_zonedb  encode_zonedb encode_resource_record
 );
 
 my $VERBOSITY = 0;
@@ -83,10 +88,17 @@ sub parse_resource_record {
 	return { label => $label, ttl => $ttl, class => $class, type => $type, data => $data };
 }
 
-# Parses contents of zone file string
-# Can optionally specify the path for more descriptive error messages including path name
-# Returns { records => [], origin => string, ttl => string } object
-sub parse_zone_db {
+=item C<parse_zonedb>
+
+Parses contents of a zone file database represented as string
+
+Can optionally specify the path/name of the file for more descriptive error messages
+
+Returns { records => [], origin => string, ttl => string } object where each item of
+records is of the form: { label, ttl, class, type, data }
+
+=cut
+sub parse_zonedb {
 	my ($raw, $path) = @_;
 
 	my @lines = split(/\n/, $raw);
@@ -124,6 +136,60 @@ sub parse_zone_db {
 
 	return $result;
 }
+
+=item C<encode_zonedb>
+
+Writes a { records => [], origin => string, ttl => string } object to zonedb format
+and returns resultant string
+
+=cut
+sub encode_zonedb {
+	my ($data) = @_;
+
+	my $result = '';
+
+	$result .= "\$ORIGIN $data->{origin}\n" if $data->{origin};
+	$result .= "\$TTL    $data->{ttl}\n"    if $data->{ttl};
+	$result .= encode_resource_records($data->{records});
+
+	return $result;
+}
+
+=item C<encode_zonedb>
+
+Writes a list of resource records to lines of a zonedb, can accept either array or output
+of C<group_records>
+
+=cut
+sub encode_resource_records {
+	my ($records) = @_;
+
+	my $recMap = ref($records) eq "ARRAY" ? group_records($records) : $records;
+
+	my $result = '';
+
+	my @names = sort keys %$recMap;
+	for my $n (@names) {
+		my @types = sort keys %{$recMap->{$n}};
+		for my $t (@types) {
+			$result .= encode_resource_record($_) . "\n" foreach @{$recMap->{$n}{$t}};
+		}
+	}
+
+	return $result;
+}
+
+=item C<encode_resource_record>
+
+Formats a single resource record as string
+
+=cut
+sub encode_resource_record {
+	my ($r) = @_;
+	return "$r->{label}\t$r->{ttl}\tIN\t$r->{type}\t$r->{data}";
+}
+
+
 
 =back
 

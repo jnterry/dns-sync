@@ -8,7 +8,7 @@ use Test::Deep qw(cmp_set);
 
 require_ok('DnsSync::Utils');
 
-use DnsSync::ZoneDb qw(parse_zone_db);
+use DnsSync::ZoneDb qw(parse_zonedb);
 use DnsSync::Utils  qw(group_records ungroup_records compute_record_set_delta apply_deltas);
 
 my @rs = (
@@ -61,7 +61,7 @@ cmp_set(\@ungrouped, [
 # - TEST: compute_record_set_delta and apply_deltas    -
 # ------------------------------------------------------
 
-my $parsed = parse_zone_db(q{
+my $parsed = parse_zonedb(q{
 test-a	300	IN	A	127.0.0.1
 test-a	300	IN	A	127.0.0.5
 test-b	999	IN	TXT	"abc"
