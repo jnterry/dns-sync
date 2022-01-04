@@ -16,13 +16,15 @@ use JSON::XS qw(decode_json);
 use LWP::UserAgent;
 use Try::Tiny;
 
+use Data::Dumper;
+
 use DnsSync::Utils     qw(verbose get_ua);
 use DnsSync::RecordSet qw(compute_record_set_delta apply_deltas);
 use DnsSync::ZoneDb    qw(parse_zonedb encode_zonedb);
 
 use Exporter qw(import);
 our @EXPORT_OK = qw(
-  can_handle get_current write_changes
+  can_handle get_records set_records write_delta
 );
 
 my $API_ENDPOINT = 'https://dns.hetzner.com/api/v1';
@@ -73,29 +75,40 @@ sub get_records {
 	return parse_zonedb($body);
 }
 
-=item C<write_records>
+=item C<write_delta>
 
-Writes records to Hertzner
+Writes a set of deltas to Hertzner
 
 =cut
-sub write_records {
-	my ($uri, $records, $args) = @_;
+sub write_delta {
+	my ($uri, $deltas, $args) = @_;
+
+	my $existing = $args->{existing} || get_records($uri);
+	my @final  = apply_deltas($existing->{records}, $deltas);
+
+	return set_records(
+		$uri,
+		{
+			records => \@final,
+			origin  => $args->{origin} || $existing->{origin},
+			ttl     => $existing->{ttl}
+		},
+		$args
+	);
+}
+
+=item C<set_records>
+
+Writes records to Hertzner, replacing any existing data
+
+=cut
+sub set_records {
+	my ($uri, $zonedb, $args) = @_;
 
 	die "Invalid Hertzner URI: $uri" unless $uri =~ $URI_REGEX;
 	my $zoneId = $1;
 
-	# Compute final set of records after deltas are applied
-	my $current  = get_records($uri);
-	my $delta = compute_record_set_delta($current->{records}, $records, {
-		managed => $args->{managed},
-	});
-	$delta->{deletions} = [] unless $args->{delete};
-	my @finalRecords  = apply_deltas($current->{records}, $delta);
-	my $finalZonefile = encode_zonedb({
-		records => \@finalRecords,
-		origin  => $args->{origin} || $current->{origin},
-		ttl     => $current->{ttl}
-	});
+	my $zonefile = encode_zonedb($zonedb);
 
 	my $ua = get_ua();
 
@@ -106,7 +119,7 @@ sub write_records {
 		[ 'Auth-API-Token' => _get_api_token(),
 			'Content-Type'   => 'text/plain',
 		],
-		$finalZonefile,
+		$zonefile,
 	));
 	die 'Failed to update hertzner records: ' . $res->status_line . "\n" . $res->decoded_content unless $res->is_success;
 

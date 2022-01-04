@@ -34,7 +34,7 @@ sub run {
 		}
 	}
 
-  my $out = qx[./bin/dns-sync $cliArgs 2>&1];
+  my $out = qx[./bin/dns-sync sync $cliArgs 2>&1];
 	my $exit = ($? >> 8);
 	return ( $out, $exit );
 }
@@ -90,7 +90,7 @@ test-c	600	IN	TXT	"Test Text"
 test-a	100	IN	A	127.0.0.5
 test-e	100	IN	TXT	"testing"
 }});
-is($exit, 0, "Sync dir to existing file works");
+is($exit, 0, "Sync dir to existing file");
 file_contents_eq('./t/data/output/out.zone', q{test-a	600	IN	A	127.0.0.1
 test-a	600	IN	A	127.0.0.2
 test-a	600	IN	AAAA	::1
@@ -105,7 +105,7 @@ test-e	100	IN	TXT	"testing"
 test-a	100	IN	A	127.0.0.5
 test-e	100	IN	TXT	"testing"
 }});
-is($exit, 0, "Sync dir to existing file works");
+is($exit, 0, "Sync dir to existing file (with delete)");
 file_contents_eq('./t/data/output/out.zone', q{test-a	600	IN	A	127.0.0.1
 test-a	600	IN	A	127.0.0.2
 test-a	600	IN	AAAA	::1
@@ -123,7 +123,7 @@ test-f	100	IN	TXT	"testing"
 	'managed.zone' => q{
 test-e	100	IN	TXT	"testing"
 }});
-is($exit, 0, "Sync dir to existing file works");
+is($exit, 0, "Sync dir to existing file (with delete and managed)");
 file_contents_eq('./t/data/output/out.zone', q{test-a	600	IN	A	127.0.0.1
 test-a	600	IN	A	127.0.0.2
 test-a	600	IN	AAAA	::1

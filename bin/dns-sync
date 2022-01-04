@@ -6,9 +6,8 @@ use warnings;
 use Getopt::Long::Descriptive qw(describe_options);
 use Module::Pluggable search_path => ['DnsSync::Provider'], sub_name => 'providers', require => 1;
 
-use DnsSync::Utils qw(verbose set_verbosity);
-
-use Data::Dumper;
+use DnsSync::RecordSet qw(compute_record_set_delta apply_deltas);
+use DnsSync::Utils     qw(verbose set_verbosity);
 
 my ($cli) = describe_options(
 	'dns-sync %o',
@@ -22,39 +21,75 @@ my ($cli) = describe_options(
 );
 set_verbosity(1) if $cli->{verbose};
 
+my %CMD_HANDLERS = (
+	sync => \&cmd_sync,
+);
+
 exit main();
 
 sub main {
-	my ($source, $target) = @ARGV;
-	die "Must specify 2 positional arguments: source and target" unless $source && $target;
+	my ($cmd) = shift @ARGV;
 
-	# Find the provider for the source and dest
-	my $sourceProvider  = get_provider_for_uri($source, 'source');
-	my $targetProvider  = get_provider_for_uri($target, 'target');
-	my $managedProvider = get_provider_for_uri($cli->{managed_set}, 'managed-set');
+	die "Must specify command name" unless $cmd;
+
+	if($CMD_HANDLERS{$cmd}) {
+		$CMD_HANDLERS{$cmd}->();
+		return 0;
+	} else {
+		print STDERR "Invalid command: $cmd";
+		return 255;
+	}
+}
+
+# Command which syncs two DNS providers by finding delta between source and target, and then applies
+# delta to the target
+sub cmd_sync {
+	my ($sourceUri, $targetUri) = @ARGV;
+	die "Sync command expects 2 positional arguments: source and target" unless $sourceUri && $targetUri;
+
+	# Find the providers for the source and dest
+	my $source  = get_provider_for_uri($sourceUri, 'source');
+	my $target  = get_provider_for_uri($targetUri, 'target');
+	my $managed = get_provider_for_uri($cli->{managed_set}, 'managed-set');
 
 	# Fetch data for managed set
 	my $managedData;
-	if($managedProvider) {
-		$managedData = $managedProvider->can('get_records')->($cli->{managed_set}, {
+	if($managed) {
+		$managedData = $managed->can('get_records')->($cli->{managed_set}, {
 			allowNonExistent => 1,
 		});
 	}
 
-	# Perform sync
-	my $sourceData  = $sourceProvider->can('get_records')->($source);
-	my %targetArgs = (
-		wait    => $cli->{wait},
-		delete  => $cli->{delete},
-		origin  => $sourceData->{origin} || $cli->{origin},
-	);
-	$targetProvider->can('write_records')->($target, $sourceData->{records}, {
-		%targetArgs,
+	# Compute delta for target
+	my $desired  = $source->can('get_records')->($sourceUri);
+	my $existing = $target->can('get_records')->($targetUri, { allowNonExistent => 1 });
+	my $delta    = compute_record_set_delta($existing->{records}, $desired->{records}, {
 		managed => $managedData->{records},
 	});
+	$delta->{deletions} = [] unless $cli->{delete};
 
-	# Update managed set
-	$managedProvider->can('write_records')->($cli->{managed_set}, $sourceData->{records}, \%targetArgs) if $cli->{managed_set};
+	# Perform sync
+	my %writeArgs = (
+		wait     => $cli->{wait},
+		origin   => $cli->{origin},
+		existing => $existing,
+	);
+	if(scalar @{$delta->{deletions}} == 0 and scalar @{$delta->{upserts}} == 0) {
+		print "No updates required\n";
+	} else {
+		verbose "Writing new records to target";
+		$target->can('write_delta')->($targetUri, $delta, \%writeArgs);
+	}
+
+	# Update managed set for use next run
+	if($managed) {
+		verbose "Updating managed set";
+		$managed->can('set_records')->($cli->{managed_set}, {
+			origin  => $cli->{origin} || $managedData->{origin},
+			ttl     => $managedData->{origin},
+			records => $desired->{records},
+		}, \%writeArgs);
+	}
 
 	return 0;
 }

@@ -101,27 +101,38 @@ sub _load_zone_file {
 	return parse_zonedb($raw, $path);
 }
 
-=item C<write_records>
+=item C<write_delta>
 
-Writes records to zone file
+Applys a set of deltas to the specified provider, creating and deleting records as required
 
 =cut
-sub write_records {
-	my ($uri, $records, $args) = @_;
+sub write_delta {
+	my ($uri, $delta, $args) = @_;
 
-	# To match the behaviour of other providers, we need to merge the data into the target
-	# (subject to the --delete and --managed-set flags) - hence we must read the existing
-	# data before writing
-	my $path     = _parse_uri($uri);
-	my $existing = group_records(get_records($uri, { allowNonExistent => 1 })->{records});
+	my $existing = $args->{existing} || get_records($uri);
+	my @final = apply_deltas($existing->{records}, $delta);
 
-	# Compute final set of records after deltas are applied
-	my $delta = compute_record_set_delta($existing, $records, {
-		managed => $args->{managed},
-	});
-	$delta->{deletions} = [] unless $args->{delete};
-	my @finalRecords = apply_deltas($existing, $delta);
-	my $groupedFinal = group_records(\@finalRecords);
+	return set_records(
+		$uri,
+		{
+			records => \@final,
+			origin  => $args->{origin} || $existing->{origin},
+			ttl     => $existing->{ttl}
+		},
+		$args
+	);
+}
+
+=item C<set_records>
+
+Updates the provider to contain only the specified records, completely erasing any existing data
+
+=cut
+sub set_records {
+	my ($uri, $zonedb, $args) = @_;
+
+	my $path    = _parse_uri($uri);
+	my $grouped = group_records($zonedb->{records});
 
 	my $parentDir = dirname($path);
 	make_path($parentDir) if $parentDir;
@@ -132,14 +143,15 @@ sub write_records {
 		make_path($dirPath);
 		unlink glob "'${dirPath}*.zone'";
 
-		for my $n (keys %$groupedFinal) {
+		for my $n (keys %$grouped) {
 			my $filePath = "${dirPath}${n}.zone";
-			_write_records_to_file($filePath, { $n => $groupedFinal->{$n} });
+			_write_records_to_file($filePath, { $n => $grouped->{$n} });
 		}
 	} else {
-		_write_records_to_file($path, $groupedFinal);
+		_write_records_to_file($path, $grouped);
 	}
 }
+
 
 # Helper which writes a set of grouped records into a file
 sub _write_records_to_file {

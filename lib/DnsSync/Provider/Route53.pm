@@ -17,7 +17,7 @@ use DnsSync::Utils     qw(verbose);
 
 use Exporter qw(import);
 our @EXPORT_OK = qw(
-  can_handle get_current write_changes
+  can_handle get_records set_records write_delta
 );
 
 my $URI_REGEX = qr|^route53://(.+)$|;
@@ -88,42 +88,17 @@ sub get_records {
 	return { records => \@results, origin => $origin };
 }
 
-=item C<write_records>
+=item C<write_deltas>
 
-Writes records to AWS. Note that internally this first calls get_records, and only updates those
-which have changed
-
-=over 4
-
-=item C<uri>     route53://$zoneId uri to write changes to
-
-=item C<records> list of records to write
-
-=item C<args.origin> DNS Origin to prepend to records label's
-
-=item C<args.wait> If set, will wait for change to propogate to DNS servers before returning
-
-=item C<args.delete> Deletes existing records from target but NOT in $records
-
-=item C<args.managed> Which records do we manage? Prevents deletion of any records NOT in $managed
-
-=back
+Writes changes to AWS
 
 =cut
-sub write_records {
-	my ($uri, $records, $args) = @_;
+sub write_delta {
+	my ($uri, $delta, $args) = @_;
 
 	die "Invalid Route53 URI: $uri" unless $uri =~ $URI_REGEX;
 	my $zoneId = $1;
-
-	# Fetch existing items
-	my $existing = get_records($uri);
-	my $origin = $args->{origin} || $existing->{origin};
-
-	# Compute the set of changes that need to be made
-	my $delta = compute_record_set_delta($existing->{records}, $records, {
-		managed => $args->{managed},
-	});
+	my $origin = $args->{origin} || $args->{existing}{origin};
 
 	# Convert from list of zone file style record objects to AWS API objects
 	my @changes;
@@ -169,6 +144,34 @@ sub write_records {
 	}
 
 	print "Update complete\n";
+
+}
+
+
+=item C<set_records>
+
+Writes records to AWS. Note that internally this first calls get_records, and only updates those
+which have changed
+
+=over 4
+
+=item C<uri>     route53://$zoneId uri to write changes to
+
+=item C<zonedb> { records, origin, ttl } object to write
+
+=item C<args.origin> DNS Origin to prepend to records label's
+
+=item C<args.wait> If set, will wait for change to propogate to DNS servers before returning
+
+=back
+
+=cut
+sub set_records {
+	my ($uri, $zonedb, $args) = @_;
+
+	my $existing = $args->{existing} || get_records($uri);
+	my $delta = compute_record_set_delta($existing->{records}, $zonedb->{records});
+	return write_delta($uri, $delta, $args);
 }
 
 sub _make_aws_change_batch {
