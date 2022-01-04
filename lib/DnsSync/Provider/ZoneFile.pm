@@ -15,7 +15,8 @@ use File::Basename;
 use File::Path qw(make_path);
 use Data::Dumper;
 
-use DnsSync::Utils qw(verbose replace_records group_records parse_zone_file compute_record_set_delta apply_deltas);
+use DnsSync::ZoneDb qw(parse_zone_db);
+use DnsSync::Utils qw(verbose replace_records group_records compute_record_set_delta apply_deltas);
 
 use Exporter qw(import);
 our @EXPORT_OK = qw(
@@ -78,14 +79,15 @@ sub get_records {
 		}
 	}
 
-	my @results;
-
+	my $results = { records => [], origin => undef, ttl => undef };
 	foreach my $path (@files) {
 		next if $isDir and $path !~ /.+\.(zone|db)$/;
-		push @results, _load_zone_file($path);
+		my $data = _load_zone_file($path);
+		push @{$results->{records}}, @{$data->{records}};
+		$results->{origin} ||= $data->{origin};
+		$results->{ttl}    ||= $data->{ttl};
 	}
-
-	return { records => \@results, origin => undef };
+	return $results;
 }
 
 # Helper which loads contents of a DNS zone file
@@ -96,7 +98,7 @@ sub _load_zone_file {
 	my $raw = do { local $/; <$fh> };
 	close($fh);
 
-	return parse_zone_file($raw, $path);
+	return parse_zone_db($raw, $path);
 }
 
 =item C<write_records>

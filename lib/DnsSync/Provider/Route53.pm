@@ -4,8 +4,6 @@ package DnsSync::Provider::Route53;
 
 sync-dns provider for interacting with AWS Route53
 
-=over
-
 =cut
 
 use strict;
@@ -22,8 +20,6 @@ our @EXPORT_OK = qw(
 );
 
 my $URI_REGEX = qr|^route53://(.+)$|;
-
-=back
 
 =head1 FUNCTIONS
 
