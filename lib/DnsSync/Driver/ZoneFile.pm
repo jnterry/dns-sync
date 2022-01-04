@@ -1,8 +1,8 @@
-package DnsSync::Provider::ZoneFile;
+package DnsSync::Driver::ZoneFile;
 
-=head1 OVERVIEW C<ZoneFile>
+=head1 OVERVIEW C<DnsSync::Driver::ZoneFile>
 
-sync-dns provider for interacting zone files on local disk
+zonemod dirver for interacting with zonedb files on local disk
 
 =over
 

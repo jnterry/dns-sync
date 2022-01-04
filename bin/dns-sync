@@ -4,10 +4,10 @@ use strict;
 use warnings;
 
 use Getopt::Long::Descriptive qw(describe_options);
-use Module::Pluggable search_path => ['DnsSync::Provider'], sub_name => 'providers', require => 1;
+use Module::Pluggable search_path => ['DnsSync::Cmd'], sub_name => 'commands', require => 1;
 
-use DnsSync::RecordSet qw(compute_record_set_delta apply_deltas);
-use DnsSync::Utils     qw(verbose set_verbosity);
+use DnsSync::Utils qw(verbose set_verbosity);
+
 
 my ($cli) = describe_options(
 	'dns-sync %o',
@@ -21,19 +21,17 @@ my ($cli) = describe_options(
 );
 set_verbosity(1) if $cli->{verbose};
 
-my %CMD_HANDLERS = (
-	sync => \&cmd_sync,
-);
-
 exit main();
 
 sub main {
 	my ($cmd) = shift @ARGV;
-
 	die "Must specify command name" unless $cmd;
 
-	if($CMD_HANDLERS{$cmd}) {
-		$CMD_HANDLERS{$cmd}->();
+	my $cmds = load_commands();
+	my $handler = $cmds->{handlers}{$cmd};
+
+	if($handler) {
+		$handler->can('run')->($cli, @ARGV);
 		return 0;
 	} else {
 		print STDERR "Invalid command: $cmd";
@@ -41,72 +39,21 @@ sub main {
 	}
 }
 
-# Command which syncs two DNS providers by finding delta between source and target, and then applies
-# delta to the target
-sub cmd_sync {
-	my ($sourceUri, $targetUri) = @ARGV;
-	die "Sync command expects 2 positional arguments: source and target" unless $sourceUri && $targetUri;
+sub load_commands {
 
-	# Find the providers for the source and dest
-	my $source  = get_provider_for_uri($sourceUri, 'source');
-	my $target  = get_provider_for_uri($targetUri, 'target');
-	my $managed = get_provider_for_uri($cli->{managed_set}, 'managed-set');
+	my @cmds = commands();
 
-	# Fetch data for managed set
-	my $managedData;
-	if($managed) {
-		$managedData = $managed->can('get_records')->($cli->{managed_set}, {
-			allowNonExistent => 1,
-		});
+	my %handlers;
+	my @names;
+
+	for my $c (@cmds) {
+		my @aliases = $c->can('aliases')->();
+		for my $alias (@aliases) {
+			die "Duplicate command alias: $alias in $handlers{$alias} and $c" if $handlers{$alias};
+			$handlers{$alias} = $c;
+		}
+		push @names, $aliases[0];
 	}
 
-	# Compute delta for target
-	my $desired  = $source->can('get_records')->($sourceUri);
-	my $existing = $target->can('get_records')->($targetUri, { allowNonExistent => 1 });
-	my $delta    = compute_record_set_delta($existing->{records}, $desired->{records}, {
-		managed => $managedData->{records},
-	});
-	$delta->{deletions} = [] unless $cli->{delete};
-
-	# Perform sync
-	my %writeArgs = (
-		wait     => $cli->{wait},
-		origin   => $cli->{origin},
-		existing => $existing,
-	);
-	if(scalar @{$delta->{deletions}} == 0 and scalar @{$delta->{upserts}} == 0) {
-		print "No updates required\n";
-	} else {
-		verbose "Writing new records to target";
-		$target->can('write_delta')->($targetUri, $delta, \%writeArgs);
-	}
-
-	# Update managed set for use next run
-	if($managed) {
-		verbose "Updating managed set";
-		$managed->can('set_records')->($cli->{managed_set}, {
-			origin  => $cli->{origin} || $managedData->{origin},
-			ttl     => $managedData->{origin},
-			records => $desired->{records},
-		}, \%writeArgs);
-	}
-
-	return 0;
-}
-
-sub get_provider_for_uri {
-	my ($uri, $label) = @_;
-
-	return unless $uri;
-
-	my @providers = providers();
-  @providers = grep { $_->can('can_handle')->($uri) } @providers;
-	my $count = @providers;
-	if($count == 0) {
-		die "No DNS provider found for which can handle '$uri' (for $label)";
-	} elsif ($count > 1) {
-		die "$label '$uri' is ambigious and can be handled by multiple DNS implementations: " . join(',', @providers);
-	} else {
-		return $providers[0];
-	}
+	return { names => \@names, handlers => \%handlers };
 }

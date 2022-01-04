@@ -1,8 +1,8 @@
-package DnsSync::Provider::Hertzner;
+package DnsSync::Driver::Hertzner;
 
-=head1 OVERVIEW C<DnsSync::Provider::Hertzner>
+=head1 OVERVIEW C<DnsSync::Driver::Hertzner>
 
-sync-dns provider for interacting with Hertzner DNS
+zonemod driver for interacting with Hertzner DNS
 
 Can find zone's ID as final component of URL by selecting it from dashboard at:
 https://dns.hetzner.com/

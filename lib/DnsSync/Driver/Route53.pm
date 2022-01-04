@@ -1,8 +1,8 @@
-package DnsSync::Provider::Route53;
+package DnsSync::Driver::Route53;
 
-=head1 OVERVIEW C<route53>
+=head1 OVERVIEW C<DnsSync::Driver::Route53>
 
-sync-dns provider for interacting with AWS Route53
+zonemod driver for interacting with AWS Route53
 
 =cut
 
