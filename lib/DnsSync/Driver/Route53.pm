@@ -13,7 +13,7 @@ use File::Temp qw(tempfile);
 use JSON::XS   qw(decode_json encode_json);
 
 use DnsSync::RecordSet qw(group_records);
-use DnsSync::Diff      qw(compute_record_set_diff);
+use DnsSync::Diff      qw(compute_record_set_diff apply_diff);
 use DnsSync::Utils     qw(verbose);
 
 use Exporter qw(import);
@@ -50,14 +50,14 @@ sub get_records {
 	my $zoneId = $1;
 
 	# Fetch AWS meta data
-	verbose("Fetching Route53 zone meta data...\n");
+	verbose("Fetching Route53 zone meta data...");
 	my $zone = `aws route53 get-hosted-zone --id ${zoneId}`;
 	die "Failed to fetch Route53 zone meta data" unless ($? >> 8 == 0);
 	$zone = decode_json($zone);
 	my $origin = $zone->{HostedZone}{Name};
 
 	# Fetch AWS Records
-  verbose("Listing existing DNS records...\n");
+  verbose("Listing existing DNS records...");
 	my @awsRecords;
 	my $existing = `aws route53 list-resource-record-sets --hosted-zone-id $zoneId`;
 	die "Failed to list Route53 records" unless ($? >> 8 == 0);
@@ -101,10 +101,10 @@ sub write_diff {
 	my $zoneId = $1;
 	my $origin = $args->{origin} || $args->{existing}{origin};
 
+	my $existing = $args->{existing} || get_records($uri);
+
 	# Convert from list of zone file style record objects to AWS API objects
-	my @changes;
-	push @changes, _make_aws_change_batch($diff->{upserts},   $origin, "UPSERT");
-	push @changes, _make_aws_change_batch($diff->{deletions}, $origin, "DELETE") if $args->{delete};
+	my @changes = _make_aws_change_batch($diff, $existing, $origin);
 	unless(@changes) {
 		print "No updates required\n";
 		return;
@@ -172,34 +172,57 @@ sub set_records {
 
 	my $existing = $args->{existing} || get_records($uri);
 	my $diff = compute_record_set_diff($existing->{records}, $zonedb->{records});
-	return write_diff($uri, $diff, $args);
+	return write_diff($uri, $diff, { $args, existing => $existing });
 }
 
 sub _make_aws_change_batch {
-	my ($records, $origin, $changeType) = @_;
+	my ($diff, $existing, $origin) = @_;
 
-	my $grouped = group_records($records);
+	my $groupedDiff     = ref($diff) eq 'ARRAY' ? group_records($diff)     : $diff;
+	my @desired         = apply_diff($existing->{records}, $groupedDiff);
+	my $groupedDesired  = group_records(\@desired);
 
 	my @results;
 
-	for my $n (keys %$grouped) {
-		for my $t (keys %{$grouped->{$n}}) {
-			my $ttl = 999999999;
-			my @values;
+	for my $n (keys %$groupedDiff) {
+		for my $t (keys %{$groupedDiff->{$n}}) {
+			my @toDelete = grep { $_->{diff} eq '-' } @{$groupedDiff->{$n}{$t}};
+			my @toCreate = grep { $_->{diff} eq '+' } @{$groupedDiff->{$n}{$t}};
+			my $rs;
 
-			# The NS and SOA records at root of a Route53 zone cannot be deleted!
-			if (($t eq 'SOA' or $t eq 'NS') && ($n eq '@') && ($changeType eq 'DELETE')) {
-				verbose "Skipped delete for $t record at root of Route53 zone -> AWS will not let us!";
-				next;
+
+			my $action;
+			if(@toDelete > 0 && @toCreate == 0) {
+				if (($t eq 'SOA' or $t eq 'NS') && ($n eq '@')) {
+					print "Skipped delete for $t record at root of Route53 zone -> AWS will not let us\n";
+					next;
+				}
+
+				# check if there are desired records that already exist, we need to keep them
+				# by upserting to just the kept set
+				$rs = $groupedDesired->{$n}{$t};
+				if(scalar @$rs) {
+					$action = 'UPSERT';
+				} else {
+					$action = 'DELETE';
+					$rs = \@toDelete;
+				}
+			} else {
+				# Upsert will automatically delete any existing items for same record, so just get the
+				# desired records for this group...
+				$action = 'UPSERT';
+				$rs = $groupedDesired->{$n}{$t};
 			}
 
-			for my $r (@{$grouped->{$n}{$t}}) {
+			my @values;
+			my $ttl = 99999999999;
+			for my $r (@$rs) {
 				$ttl = $r->{ttl} if $r->{ttl} < $ttl;
 				push @values, { Value => $r->{data} };
 			}
 
 			push @results, {
-				Action => $changeType,
+				Action => $action,
 				"ResourceRecordSet" => {
 					Name            => "${n}.${origin}",
 					Type            => $t,

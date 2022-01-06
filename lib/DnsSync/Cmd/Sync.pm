@@ -7,6 +7,7 @@ use DnsSync::Diff      qw(compute_record_set_diff apply_diff);
 use DnsSync::Driver    qw(get_driver_for_uri);
 use DnsSync::RecordSet qw(ungroup_records);
 use DnsSync::Utils     qw(verbose);
+use DnsSync::ZoneDb    qw(encode_zonedb);
 
 =head1 C<sync> - rsync for dns
 
@@ -67,12 +68,17 @@ sub run {
 	my $desired  = $source->can('get_records')->($sourceUri);
 	my $existing = $target->can('get_records')->($targetUri, { allowNonExistent => 1 });
 
-	my $diff     = compute_record_set_diff($existing->{records}, $desired->{records}, {
+	my ($allowedDiff, $blockedDiff) = compute_record_set_diff($existing->{records}, $desired->{records}, {
 		managed  => $managedData->{records},
 		noDelete => !$cli->{delete},
 		grouping => $cli->{record_grouping},
 	});
-	my @flatDiff = ungroup_records($diff);
+	my @blockedCreations = grep { $_->{diff} eq '+' } ungroup_records($blockedDiff);
+	if(@blockedCreations) {
+		print STDERR "Cannot sync - the following records would conflict with existing records in the target which are not in our management set\n";
+		print STDERR encode_zonedb({ records => \@blockedCreations });
+		return 1;
+	}
 
 	# Perform sync
 	my %writeArgs = (
@@ -80,11 +86,12 @@ sub run {
 		origin   => $cli->{origin},
 		existing => $existing,
 	);
+	my @flatDiff = ungroup_records($allowedDiff);
 	unless(scalar @flatDiff) {
 		print "No updates required\n";
 	} else {
 		verbose "Writing updates to target";
-		$target->can('write_diff')->($targetUri, $diff, \%writeArgs);
+		$target->can('write_diff')->($targetUri, $allowedDiff, \%writeArgs);
 	}
 
 	# Update managed set for use next run
