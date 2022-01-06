@@ -12,6 +12,8 @@ use warnings;
 use File::Temp qw(tempfile);
 use JSON::XS   qw(decode_json encode_json);
 
+use Data::Dumper;
+
 use Zonemod::RecordSet qw(group_records);
 use Zonemod::Diff      qw(compute_record_set_diff apply_diff);
 use Zonemod::Utils     qw(verbose);
@@ -98,10 +100,12 @@ sub write_diff {
 	my ($uri, $diff, $args) = @_;
 
 	die "Invalid Route53 URI: $uri" unless $uri =~ $URI_REGEX;
-	my $zoneId = $1;
-	my $origin = $args->{origin} || $args->{existing}{origin};
 
-	my $existing = $args->{existing} || get_records($uri);
+	my $existing = $args->{existing};
+	$existing = get_records($uri) unless $existing && keys %$existing;
+
+	my $zoneId = $1;
+	my $origin = $args->{origin} || $existing->{origin};
 
 	# Convert from list of zone file style record objects to AWS API objects
 	my @changes = _make_aws_change_batch($diff, $existing, $origin);
@@ -170,7 +174,9 @@ which have changed
 sub set_records {
 	my ($uri, $zonedb, $args) = @_;
 
-	my $existing = $args->{existing} || get_records($uri);
+	my $existing = $args->{existing};
+	$existing = get_records($uri) unless $existing && keys %$existing;
+
 	my $diff = compute_record_set_diff($existing->{records}, $zonedb->{records});
 	return write_diff($uri, $diff, { $args, existing => $existing });
 }
@@ -201,7 +207,7 @@ sub _make_aws_change_batch {
 				# check if there are desired records that already exist, we need to keep them
 				# by upserting to just the kept set
 				$rs = $groupedDesired->{$n}{$t};
-				if(scalar @$rs) {
+				if($rs && scalar @$rs) {
 					$action = 'UPSERT';
 				} else {
 					$action = 'DELETE';
@@ -215,11 +221,16 @@ sub _make_aws_change_batch {
 			}
 
 			my @values;
+			my $gotTtl = 0;
 			my $ttl = 99999999999;
 			for my $r (@$rs) {
-				$ttl = $r->{ttl} if $r->{ttl} < $ttl;
+				if($r->{ttl} && $r->{ttl} < $ttl){
+					$ttl    = $r->{ttl};
+					$gotTtl = 1;
+				}
 				push @values, { Value => $r->{data} };
 			}
+			$ttl = 3600 unless $gotTtl;
 
 			push @results, {
 				Action => $action,

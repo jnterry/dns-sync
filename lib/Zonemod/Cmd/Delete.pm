@@ -54,7 +54,7 @@ sub aliases {
 
 sub run {
 	my ($cli, $recordStr, $targetUri) = @_;
-	die "Sync command expects 2 positional arguments: RECORD and TARGET" unless $recordStr && $targetUri;
+	die "Delete command expects 2 positional arguments: RECORD and TARGET" unless $recordStr && $targetUri;
 
 	my $record = try {
 		return parse_resource_record($recordStr);
@@ -85,10 +85,10 @@ sub run {
 		}
 	}
 
-	my $delta = { deletions => [ $record ] };
-	$target->can('write_delta')->($targetUri, $delta, { wait => $cli->{wait} });
+	my $diff = [{diff => '-', %$record }];
+	$target->can('write_diff')->($targetUri, $diff, { wait => $cli->{wait} });
 	if($managed) {
-		$managed->can('write_delta')->($targetUri, $delta, { wait => $cli->{wait} });
+		$managed->can('write_diff')->($targetUri, $diff, { wait => $cli->{wait} });
 	}
 
 	return 0;
