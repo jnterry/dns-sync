@@ -3,9 +3,10 @@ package DnsSync::Cmd::Sync;
 use strict;
 use warnings;
 
+use DnsSync::Diff      qw(compute_record_set_diff apply_diff);
 use DnsSync::Driver    qw(get_driver_for_uri);
+use DnsSync::RecordSet qw(ungroup_records);
 use DnsSync::Utils     qw(verbose);
-use DnsSync::RecordSet qw(compute_record_set_delta apply_deltas);
 
 =head1 C<sync> - rsync for dns
 
@@ -62,13 +63,16 @@ sub run {
 		});
 	}
 
-	# Compute delta for target
+	# Compute diff for target
 	my $desired  = $source->can('get_records')->($sourceUri);
 	my $existing = $target->can('get_records')->($targetUri, { allowNonExistent => 1 });
-	my $delta    = compute_record_set_delta($existing->{records}, $desired->{records}, {
-		managed => $managedData->{records},
+
+	my $diff     = compute_record_set_diff($existing->{records}, $desired->{records}, {
+		managed  => $managedData->{records},
+		noDelete => !$cli->{delete},
+		grouping => $cli->{record_grouping},
 	});
-	$delta->{deletions} = [] unless $cli->{delete};
+	my @flatDiff = ungroup_records($diff);
 
 	# Perform sync
 	my %writeArgs = (
@@ -76,11 +80,11 @@ sub run {
 		origin   => $cli->{origin},
 		existing => $existing,
 	);
-	if(scalar @{$delta->{deletions}} == 0 and scalar @{$delta->{upserts}} == 0) {
+	unless(scalar @flatDiff) {
 		print "No updates required\n";
 	} else {
-		verbose "Writing new records to target";
-		$target->can('write_delta')->($targetUri, $delta, \%writeArgs);
+		verbose "Writing updates to target";
+		$target->can('write_diff')->($targetUri, $diff, \%writeArgs);
 	}
 
 	# Update managed set for use next run

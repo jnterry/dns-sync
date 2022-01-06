@@ -14,7 +14,8 @@ use warnings;
 use File::Basename;
 use File::Path qw(make_path);
 
-use DnsSync::RecordSet qw(replace_records group_records compute_record_set_delta apply_deltas);
+use DnsSync::RecordSet qw(group_records);
+use DnsSync::Diff      qw(compute_record_set_diff apply_diff);
 use DnsSync::Utils     qw(verbose);
 use DnsSync::ZoneDb    qw(parse_zonedb encode_resource_records);
 
@@ -101,16 +102,16 @@ sub _load_zone_file {
 	return parse_zonedb($raw, $path);
 }
 
-=item C<write_delta>
+=item C<write_diff>
 
-Applys a set of deltas to the specified provider, creating and deleting records as required
+Applys a set of diff to the specified provider, creating and deleting records as required
 
 =cut
-sub write_delta {
-	my ($uri, $delta, $args) = @_;
+sub write_diff {
+	my ($uri, $diff, $args) = @_;
 
 	my $existing = $args->{existing} || get_records($uri);
-	my @final = apply_deltas($existing->{records}, $delta);
+	my @final = apply_diff($existing->{records}, $diff);
 
 	return set_records(
 		$uri,

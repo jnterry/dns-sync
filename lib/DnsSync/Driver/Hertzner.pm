@@ -16,15 +16,13 @@ use JSON::XS qw(decode_json);
 use LWP::UserAgent;
 use Try::Tiny;
 
-use Data::Dumper;
-
-use DnsSync::Utils     qw(verbose get_ua);
-use DnsSync::RecordSet qw(compute_record_set_delta apply_deltas);
-use DnsSync::ZoneDb    qw(parse_zonedb encode_zonedb);
+use DnsSync::Utils   qw(verbose get_ua);
+use DnsSync::Diff    qw(compute_record_set_diff apply_diff);
+use DnsSync::ZoneDb  qw(parse_zonedb encode_zonedb);
 
 use Exporter qw(import);
 our @EXPORT_OK = qw(
-  can_handle get_records set_records write_delta
+  can_handle get_records set_records write_diff
 );
 
 my $API_ENDPOINT = 'https://dns.hetzner.com/api/v1';
@@ -75,16 +73,17 @@ sub get_records {
 	return parse_zonedb($body);
 }
 
-=item C<write_delta>
+=item C<write_diff>
 
-Writes a set of deltas to Hertzner
+Writes a set of diffs to Hertzner
 
 =cut
-sub write_delta {
-	my ($uri, $deltas, $args) = @_;
+sub write_diff {
+	my ($uri, $diff, $args) = @_;
 
 	my $existing = $args->{existing} || get_records($uri);
-	my @final  = apply_deltas($existing->{records}, $deltas);
+
+	my @final = apply_diff($existing->{records}, $diff);
 
 	return set_records(
 		$uri,
@@ -111,8 +110,6 @@ sub set_records {
 	my $zonefile = encode_zonedb($zonedb);
 
 	my $ua = get_ua();
-
-	print "Sending updated zonefile to Hertzner...\n";
 
 	my $res = $ua->request(HTTP::Request->new(
 		'POST'             => "${API_ENDPOINT}/zones/$zoneId/import",

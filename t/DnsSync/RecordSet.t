@@ -3,13 +3,13 @@
 use strict;
 use warnings;
 
-use Test::More tests => 10;
+use Test::More;
 use Test::Deep qw(cmp_set);
 
 require_ok('DnsSync::RecordSet');
 
 use DnsSync::ZoneDb    qw(parse_zonedb);
-use DnsSync::RecordSet qw(group_records ungroup_records compute_record_set_delta apply_deltas);
+use DnsSync::RecordSet qw(group_records ungroup_records does_record_match);
 
 my @rs = (
 	{ label => 'test-a', ttl => 300, class => 'IN', type => 'A',    data => "127.0.0.1" },
@@ -56,53 +56,100 @@ cmp_set(\@ungrouped, [
 	{ label => 'test-b', type => 'Y', meta  => 6       },
 ], "ungroup can handle arbitrary meta data, and auto-inserts label and type names");
 
+@ungrouped = ungroup_records({});
+is_deeply(\@ungrouped, [], "Ungroup of empty object returns empty arrray");
 
 # ------------------------------------------------------
-# - TEST: compute_record_set_delta and apply_deltas    -
+# - TEST: does_record_match                            -
 # ------------------------------------------------------
 
-my $parsed = parse_zonedb(q{
-test-a	300	IN	A	127.0.0.1
-test-a	300	IN	A	127.0.0.5
-test-b	999	IN	TXT	"abc"
-test-d	900	IN	MX	127.0.0.1
-});
+# exact match
+is_deeply(does_record_match(
+	{ label => 'test-a', ttl => 300, class => 'IN', type => 'A',    data => "127.0.0.1" },
+	{ label => 'test-a', ttl => 300, class => 'IN', type => 'A',    data => "127.0.0.1" },
+), 1, 'does_record_match - exact');
 
-my $delta = compute_record_set_delta($grouped, $parsed->{records});
-cmp_set($delta->{upserts}, [
-	{ label => 'test-a', ttl => 300, class => 'IN', type => 'A',    data => '127.0.0.1' },
-	{ label => 'test-a', ttl => 300, class => 'IN', type => 'A',    data => '127.0.0.5' }, # modified content, so whole A set changes
-	{ label => 'test-b', ttl => 999, class => 'IN', type => 'TXT',  data => '"abc"'     }, # new TTL
-	{ label => 'test-d', ttl => 900, class => 'IN', type => 'MX',   data => '127.0.0.1' }, # brand new host
-], "Upserts include replacements for all conflicting records in the same set");
-cmp_set($delta->{deletions}, [
-	{ label => 'test-a', ttl => 600, class => 'IN', type => 'AAAA', data => '::1'       }, # no longer present (even though A records are!)
-	{ label => 'test-c', ttl => 150, class => 'IN', type => 'MX',   data => '127.0.0.1' }, # entire host deleted
-], "Deletions include only fully removed record sets");
+# exact match - single field different
+is_deeply(does_record_match(
+	{ label => 'test-a', ttl => 300, class => 'IN', type => 'A',    data => "127.0.0.1" },
+	{ label => 'test-a', ttl => 300, class => 'IN', type => 'A',    data => "127.0.0.2" },
+), 0, 'does_record_match - different data');
+is_deeply(does_record_match(
+	{ label => 'test-a', ttl => 300, class => 'IN', type => 'A',    data => "127.0.0.1" },
+	{ label => 'test-a', ttl => 300, class => 'IN', type => 'MX',   data => "127.0.0.1" },
+), 0, 'does_record_match - different type');
+is_deeply(does_record_match(
+	{ label => 'test-a', ttl => 300, class => 'IN', type => 'A',    data => "127.0.0.1" },
+	{ label => 'test-a', ttl => 300, class => 'HS', type => 'A',    data => "127.0.0.1" },
+), 0, 'does_record_match - different class');
+is_deeply(does_record_match(
+	{ label => 'test-a', ttl => 300, class => 'IN', type => 'A',    data => "127.0.0.1" },
+	{ label => 'test-a', ttl => 301, class => 'IN', type => 'A',    data => "127.0.0.1" },
+), 0, 'does_record_match - different ttl');
+is_deeply(does_record_match(
+	{ label => 'test-a', ttl => 300, class => 'IN', type => 'A',    data => "127.0.0.1" },
+	{ label => 'test-b', ttl => 300, class => 'IN', type => 'A',    data => "127.0.0.1" },
+), 0, 'does_record_match - different label');
 
-my @final = apply_deltas($grouped, $delta);
-cmp_set(\@final, $parsed->{records}, "Applying deltas results in correct output set");
+# single field - label
+is_deeply(does_record_match(
+	{ label => 'test-a', ttl => 300, class => 'IN', type => 'A',    data => "127.0.0.1" },
+	{ label => 'test-a' },
+), 1, 'does_record_match - label only - match');
+is_deeply(does_record_match(
+	{ label => 'test-a', ttl => 300, class => 'IN', type => 'A',    data => "127.0.0.1" },
+	{ label => 'test-b' },
+), 0, 'does_record_match - label only - no match');
 
-$delta = compute_record_set_delta($grouped, $parsed->{records}, {
-	managed => {
-		'test-a' => { 'A' => [{}], 'AAAA' => [{}] },
-		'test-b' => { 'TXT' => [{}] },
-	},
-});
-cmp_set($delta->{upserts}, [
-	{ label => 'test-a', ttl => 300, class => 'IN', type => 'A',    data => '127.0.0.1' },
-	{ label => 'test-a', ttl => 300, class => 'IN', type => 'A',    data => '127.0.0.5' }, # modified content, so whole A set changes
-	{ label => 'test-b', ttl => 999, class => 'IN', type => 'TXT',  data => '"abc"'     }, # new TTL
-	{ label => 'test-d', ttl => 900, class => 'IN', type => 'MX',   data => '127.0.0.1' }, # brand new host
-], "Upserts include replacements for all conflicting records in the same set");
-cmp_set($delta->{deletions}, [
-	{ label => 'test-a', ttl => 600, class => 'IN', type => 'AAAA', data => '::1'       }, # no longer present (even though A records are!)
-], "Deletions exclude records not in managed set");
+# single field - ttl
+is_deeply(does_record_match(
+	{ label => 'test-a', ttl => 300, class => 'IN', type => 'A',    data => "127.0.0.1" },
+	{ ttl => 300 },
+), 1, 'does_record_match - ttl only - match');
+is_deeply(does_record_match(
+	{ label => 'test-a', ttl => 300, class => 'IN', type => 'A',    data => "127.0.0.1" },
+	{ ttl => 301 },
+), 0, 'does_record_match - ttl only - no match');
 
-@final = apply_deltas($grouped, $delta);
-cmp_set(\@final, [
-	@{$parsed->{records}},
-	{ label => 'test-c', ttl => 150, class => 'IN', type => 'MX',   data => '127.0.0.1' },
-], "Applying deltas results in correct output set, with unmanged records not deleted");
+# single field - class
+is_deeply(does_record_match(
+	{ label => 'test-a', ttl => 300, class => 'IN', type => 'A',    data => "127.0.0.1" },
+	{ class => 'IN' },
+), 1, 'does_record_match - class only - match');
+is_deeply(does_record_match(
+	{ label => 'test-a', ttl => 300, class => 'IN', type => 'A',    data => "127.0.0.1" },
+	{ class => 'HS' },
+), 0, 'does_record_match - class only - no match');
 
-=cut
+# single field - type
+is_deeply(does_record_match(
+	{ label => 'test-a', ttl => 300, class => 'IN', type => 'A',    data => "127.0.0.1" },
+	{ type => 'A' },
+), 1, 'does_record_match - type only - match');
+is_deeply(does_record_match(
+	{ label => 'test-a', ttl => 300, class => 'IN', type => 'A',    data => "127.0.0.1" },
+	{ type => 'AAAA' },
+), 0, 'does_record_match - type only - no match');
+
+# single field - data
+is_deeply(does_record_match(
+	{ label => 'test-a', ttl => 300, class => 'IN', type => 'A',    data => "127.0.0.1" },
+	{ data => '127.0.0.1' },
+), 1, 'does_record_match - data only - match');
+is_deeply(does_record_match(
+	{ label => 'test-a', ttl => 300, class => 'IN', type => 'A',    data => "127.0.0.1" },
+	{ data => '127.0.0.2' },
+), 0, 'does_record_match - data only - no match');
+
+# data field flexible parsing
+is_deeply(does_record_match(
+	{ label => 'test-a', ttl => 300, class => 'IN', type => 'MX', data => "10 example.com" },
+  { label => 'test-a', ttl => 300, class => 'IN', type => 'MX', data => "10   example.com" },
+), 1, 'data field whitespace does not matter (field seperator size)');
+is_deeply(does_record_match(
+	{ label => 'test-a', ttl => 300, class => 'IN', type => 'MX', data => "10 example.com" },
+  { label => 'test-a', ttl => 300, class => 'IN', type => 'MX', data => "10	example.com " },
+), 1, 'data field whitespace does not matter (tab & trailing)');
+
+
+done_testing();

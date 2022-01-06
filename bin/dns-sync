@@ -1,5 +1,76 @@
 #!/usr/bin/perl -I lib/
 
+=head1 zonemod
+
+Provider agnostic DNS zone modificiation and syncronization tool
+
+=head1 USAGE
+
+zonemod sync SOURCE TARGET [--delete] [--managed MANAGED]
+
+zonemod add  'test 600 IN A 127.0.0.1' TARGET
+
+zonemod del  'test 600 IN A 127.0.0.1' TARGET
+
+=head1 GLOBAL FLAGS
+
+Note that indivudual commands may include additional flags! These flags are available to all commands
+
+=over 4
+
+=item --wait
+
+If set, will not exit until changes have been accepted by DNS storage mechanisms which
+are written to. Note that most mechanisms are syncronous anyway, and thus this is a no-op
+
+Note additionally that this will NOT wait for the change may to propogated to caching DNS servers,
+which is controlled by the existing TTL value for the record
+
+=item --origin
+
+Force the zone origin for any DNS storage mechanisms which are written too. This allows a set
+of records to be transposed from one origin to some other, by reading from one source, and writing
+to a different target with -the -origin flag set
+
+=item --verbose | -v
+
+Increase logging verbosity
+
+=item --managed MANAGED
+
+By default, zonemod has the ability to create/update/delete any record. When --managed is set,
+zonemod can create new records not in TARGET, but only update/delete records which ALSO exist
+in the managed set. This allows zonemod to be safely used in conjunction with other automatted
+tools and/or manual modification's of a DNS provider's records
+
+managed is intendend to be a clean set of records which zonemod will replicate all changes to TARGET
+to also, hence it can be read back to determine which records zonemod "owns" on future runs.
+
+=item --record-grouping | --grouping | -g = [ none, type, host ]
+
+Sets the grouping mode for records - defaults to 'type' if not specified
+
+This affects behaviour of --managed and --delete in determining which records we are allowed to
+modify - by first grouping "like" records together, and allowing changes as long as we are managing
+ANY record within the group.
+
+In "none" mode, all records are consisdered independently, and thus to delete a record we must
+be explicitly managing it. Note that we can still create records if they are not already
+owned by the target
+
+In "type" mode, we group records with the same label (aka hostname) and type, eg, all records
+for "A" of "www". We are allowed to delete a record if we have repelacement records in the group,
+and can create/delete any records if any record in the managed set is in the same group
+
+In "host" mode, we group all records with the same label (aka hostname) across all record types
+We are allowed to delete a record as long as we are creating some other on the same hostname
+(even if deleting an A and adding an AAAA for example), and can create/delete any records
+if we are managing any other on the same hostname
+
+=back
+
+=cut
+
 use strict;
 use warnings;
 
@@ -16,8 +87,7 @@ my ($cli) = describe_options(
 	[ 'origin=s', 'Use specified DNS zone origin for write operations. This allows a record set to be transposed from one origin to another when source and target origins differ. Note that some providers force the origin to a particular value based on existing data. and will complain if this is set to a different value' ],
 	[ 'delete', 'Removes records from destination which do not also exist in source. By default will overwrite existing items, but never delete them if there is no replacement' ],
 	[ 'managed-set|managed=s', 'Uses a third DNS storage mechanism (eg, file, route53) to maintain a list of records which are being managed by dns-sync. Subsequent runs with --delete flag set will ONLY delete records which existing in the managed set, thus allowing DNS sync to operate in conjunction with some outside system (or manual changes)' ],
-	#[ 'exclude=s', 'Filter for records to ignore from sync' ],
-	#[ 'include=s', 'Filter for records to include in sync. If unspecified, includes everything except those explicitly mentioned by --exclude' ],
+	[ 'record-grouping|grouping|g=s', 'Set grouping mode for records to determine management and deleable status' ],
 );
 set_verbosity(1) if $cli->{verbose};
 

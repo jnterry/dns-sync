@@ -13,95 +13,16 @@ use Clone qw(clone);
 use Data::Compare;
 use Try::Tiny;
 
+use Data::Dumper;
+
 use Exporter qw(import);
 our @EXPORT_OK = qw(
-  compute_record_set_delta group_records ungroup_records replace_records apply_deltas
+  group_records ungroup_records contains_record does_record_match
 );
 
 =head1 FUNCTIONS
 
 =over 4
-
-=item C<compute_record_set_delta>
-
-Computes list of records which require creation/update/deletion
-Note this function operates by "record sets", IE: all records for the same host and of the same
-type are considered as a group
-
-In other words, syncing "A 127.0.0.2" to a host with existing "A 127.0.0.1" will update & replace
-the existing record with the new, rather than resulting in two A records for the same host
-
-=cut
-sub compute_record_set_delta {
-	my ($existing, $desired, $opts) = @_;
-
-	my $existingMap = ref($existing) eq "ARRAY" ? group_records($existing) : $existing;
-	my $desiredMap  = ref($desired ) eq "ARRAY" ? group_records($desired ) : $desired;
-	my $managedMap;
-	if($opts->{managed}) {
-		$managedMap = ref($opts->{managed}) eq "ARRAY" ? group_records($opts->{managed}) : $opts->{managed};
-	}
-
-	# 2d hash with same keys as group_records, but maps to a boolean as to whether an
-	# upsert/deletion is required
-	my $upserts = {};
-	my $deletions = {};
-
-  for my $n (keys %$desiredMap) {
-		for my $t (keys %{$desiredMap->{$n}}) {
-			my $d = $desiredMap->{$n}{$t};
-			my $e = $existingMap->{$n}{$t};
-
-			$upserts->{$n}{$t} = $d unless Compare($d, $e);
-		}
-	}
-
-	for my $n (keys %$existingMap) {
-		for my $t (keys %{$existingMap->{$n}}) {
-			my $d = $desiredMap->{$n}{$t};
-			my $e = $existingMap->{$n}{$t};
-
-			# skip delete if we're already upserting the record, or it exists in desired set
-			next if (defined $upserts->{$n}{$t}) or (defined $d and scalar @$d != 0);
-
-			# If a managed set if defined, then don't delete anything we don't manage ourselves
-			if(defined $managedMap) {
-				next unless defined $managedMap->{$n}{$t};
-			}
-
-			$deletions->{$n}{$t} = $e
-		}
-	}
-
-	my @flatUpserts   = ungroup_records($upserts);
-	my @flatDeletions = ungroup_records($deletions);
-
-	return { upserts => \@flatUpserts, deletions => \@flatDeletions };
-}
-
-=item C<compute_required_deletions>
-
-Compute list of items that need to be deleted as they exist in $existing but NOT $desired
-
-=cut
-sub compute_required_deletions {
-	my ($existing, $desired) = @_;
-
-	my $existingMap = ref($existing) eq "ARRAY" ? group_records($existing) : $existing;
-	my $desiredMap  = ref($desired ) eq "ARRAY" ? group_records($desired ) : $desired;
-
-	my @results;
-	for my $n (keys %$existingMap) {
-		for my $t (keys %{$existingMap->{$n}}) {
-			my $d = $desiredMap->{$n}{$t};
-			my $e = $existingMap->{$n}{$t};
-
-			push @results, @$e unless $d and @$d;
-		}
-	}
-
-	return @results;
-}
 
 =item C<group_records>
 
@@ -144,57 +65,61 @@ sub ungroup_records {
 	return @results;
 }
 
-=item C<replace_records>
+=item C<contains_record>
 
-Helper which takes two outputs from `group_records`, and replaces any in $a with those in $b
+Checks if given record set contains a particular record. Internally
+calls C<does_record_match> hence can exclude fields from filter by
+setting to undef
 
 =cut
-sub replace_records {
-	my ($a, $b) = @_;
+sub contains_record {
+	my ($records, $filter) = @_;
 
-	my $final = { %$a };
-	for my $n (keys %$b) {
-		for my $t (keys %{$b->{$n}}) {
-			$final->{$n}{$t} = $b->{$n}{$t};
+	my $haystack;
+	if(ref ($records) eq "ARRAY") {
+	  $haystack = $records;
+	} else {
+		# assume its a grouped RecordSet
+		if(defined $filter->{label} and defined $filter->{type}) {
+			$haystack = $records->{$filter->{label}}{$filter->{type}};
+		} elsif(defined $filter->{label}) {
+		  my @tmp = ungroup_records({ $filter->{label} => $records->{$filter->{label}} });
+			$haystack = \@tmp;
+		} else {
+			my @tmp = ungroup_records($records);
+			$haystack = \@tmp;
 		}
 	}
 
-	return $final;
+	for my $r (@$haystack) {
+		return 1 if does_record_match($r, $filter);
+	}
+	return 0;
 }
 
-=item C<delete_records>
+=item C<does_record_match>
 
-Helper which takes two outputs from `group_records`, and deletes any in $a also in $b
+Determines if a record matches the specified filter
+
+Filter is hash of the same form as the record. Note however that any of the fields
+of the filter may be set to undef to ignore filtering on that field of the record
 
 =cut
-sub delete_records {
-	my ($a, $b) = @_;
+sub does_record_match {
+	my ($record, $filter) = @_;
 
-	my $final = { %$a };
-	for my $n (keys %$b) {
-		for my $t (keys %{$b->{$n}}) {
-			delete $final->{$n}{$t} if $b->{$n}{$t};
-		}
+  return 0 if defined $filter->{label} && $record->{label} ne $filter->{label};
+	return 0 if defined $filter->{class} && $record->{class} ne $filter->{class};
+	return 0 if defined $filter->{type}  && $record->{type}  ne $filter->{type};
+	return 0 if defined $filter->{ttl}   && (!defined $record->{ttl} || $record->{ttl} != $filter->{ttl});
+
+	if(defined $filter->{data}) {
+		my $val_r = join(' ', split(/\s+/, $record->{data}));
+		my $val_n = join(' ', split(/\s+/, $filter->{data}));
+		return 0 unless $val_r eq $val_n;
 	}
 
-	return $final;
-}
-
-=item C<apply_deltas>
-
-Helper which applies set of changes in $deltas object to an input set of records
-Returns list of final records
-Does not modify $initial, instead returns copy
-
-=cut
-sub apply_deltas {
-	my ($initial, $deltas) = @_;
-
-	my $inMap = ref($initial) eq "ARRAY" ? group_records($initial) : $initial;
-	my $updated = clone($inMap);
-	$updated = replace_records($updated, group_records($deltas->{upserts}));
-  $updated = delete_records($updated, group_records($deltas->{deletions}));
-	return ungroup_records($updated);
+	return 1;
 }
 
 =back

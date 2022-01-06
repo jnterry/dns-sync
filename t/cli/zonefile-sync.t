@@ -121,6 +121,7 @@ test-e	100	IN	TXT	"testing"
 test-f	100	IN	TXT	"testing"
 },
 	'managed.zone' => q{
+test-a	100	IN	A   127.0.0.1
 test-e	100	IN	TXT	"testing"
 }});
 is($exit, 0, "Sync dir to existing file (with delete and managed)");

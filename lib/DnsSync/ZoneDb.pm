@@ -152,7 +152,7 @@ sub encode_zonedb {
 
 	$result .= "\$ORIGIN $data->{origin}\n" if $data->{origin};
 	$result .= "\$TTL    $data->{ttl}\n"    if $data->{ttl};
-	$result .= encode_resource_records($data->{records});
+	$result .= encode_resource_records($data->{records}, { });
 
 	return $result;
 }
@@ -164,7 +164,8 @@ of C<group_records>
 
 =cut
 sub encode_resource_records {
-	my ($records) = @_;
+	my ($records, $defaults) = @_;
+	$defaults //= {};
 
 	my $recMap = ref($records) eq "ARRAY" ? group_records($records) : $records;
 
@@ -174,7 +175,7 @@ sub encode_resource_records {
 	for my $n (@names) {
 		my @types = sort keys %{$recMap->{$n}};
 		for my $t (@types) {
-			$result .= encode_resource_record($_) . "\n" foreach @{$recMap->{$n}{$t}};
+			$result .= encode_resource_record({ (%$defaults, %$_) }) . "\n" foreach @{$recMap->{$n}{$t}};
 		}
 	}
 
@@ -188,7 +189,12 @@ Formats a single resource record as string
 =cut
 sub encode_resource_record {
 	my ($r) = @_;
-	return "$r->{label}\t$r->{ttl}\tIN\t$r->{type}\t$r->{data}";
+
+	my $out = $r->{label};
+	$out .= "\t$r->{ttl}"   if defined $r->{ttl};
+	$out .= "\t$r->{class}" if defined $r->{class};
+	$out .= "\t$r->{type}\t$r->{data}";
+	return $out;
 }
 
 

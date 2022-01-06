@@ -12,12 +12,13 @@ use warnings;
 use File::Temp qw(tempfile);
 use JSON::XS   qw(decode_json encode_json);
 
-use DnsSync::RecordSet qw(group_records compute_record_set_delta);
+use DnsSync::RecordSet qw(group_records);
+use DnsSync::Diff      qw(compute_record_set_diff);
 use DnsSync::Utils     qw(verbose);
 
 use Exporter qw(import);
 our @EXPORT_OK = qw(
-  can_handle get_records set_records write_delta
+  can_handle get_records set_records write_diff
 );
 
 my $URI_REGEX = qr|^route53://(.+)$|;
@@ -88,13 +89,13 @@ sub get_records {
 	return { records => \@results, origin => $origin };
 }
 
-=item C<write_deltas>
+=item C<write_diff>
 
 Writes changes to AWS
 
 =cut
-sub write_delta {
-	my ($uri, $delta, $args) = @_;
+sub write_diff {
+	my ($uri, $diff, $args) = @_;
 
 	die "Invalid Route53 URI: $uri" unless $uri =~ $URI_REGEX;
 	my $zoneId = $1;
@@ -102,8 +103,8 @@ sub write_delta {
 
 	# Convert from list of zone file style record objects to AWS API objects
 	my @changes;
-	push @changes, _make_aws_change_batch($delta->{upserts},   $origin, "UPSERT");
-	push @changes, _make_aws_change_batch($delta->{deletions}, $origin, "DELETE") if $args->{delete};
+	push @changes, _make_aws_change_batch($diff->{upserts},   $origin, "UPSERT");
+	push @changes, _make_aws_change_batch($diff->{deletions}, $origin, "DELETE") if $args->{delete};
 	unless(@changes) {
 		print "No updates required\n";
 		return;
@@ -170,8 +171,8 @@ sub set_records {
 	my ($uri, $zonedb, $args) = @_;
 
 	my $existing = $args->{existing} || get_records($uri);
-	my $delta = compute_record_set_delta($existing->{records}, $zonedb->{records});
-	return write_delta($uri, $delta, $args);
+	my $diff = compute_record_set_diff($existing->{records}, $zonedb->{records});
+	return write_diff($uri, $diff, $args);
 }
 
 sub _make_aws_change_batch {
