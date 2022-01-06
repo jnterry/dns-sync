@@ -75,18 +75,17 @@ use strict;
 use warnings;
 
 use Getopt::Long::Descriptive qw(describe_options);
-use Module::Pluggable search_path => ['DnsSync::Cmd'], sub_name => 'commands', require => 1;
+use Module::Pluggable search_path => ['Zonemod::Cmd'], sub_name => 'commands', require => 1;
 
-use DnsSync::Utils qw(verbose set_verbosity);
-
+use Zonemod::Utils qw(verbose set_verbosity);
 
 my ($cli) = describe_options(
-	'dns-sync %o',
+	'zonemod %o',
 	[ 'verbose|v', 'Increases logging verbosity', ],
 	[ 'wait', 'Prevent exit until changes have propogated to DNS servers', ],
 	[ 'origin=s', 'Use specified DNS zone origin for write operations. This allows a record set to be transposed from one origin to another when source and target origins differ. Note that some providers force the origin to a particular value based on existing data. and will complain if this is set to a different value' ],
 	[ 'delete', 'Removes records from destination which do not also exist in source. By default will overwrite existing items, but never delete them if there is no replacement' ],
-	[ 'managed-set|managed=s', 'Uses a third DNS storage mechanism (eg, file, route53) to maintain a list of records which are being managed by dns-sync. Subsequent runs with --delete flag set will ONLY delete records which existing in the managed set, thus allowing DNS sync to operate in conjunction with some outside system (or manual changes)' ],
+	[ 'managed-set|managed=s', 'Uses a third DNS storage mechanism (eg, file, route53) to maintain a list of records which are being managed by zonemod. Subsequent runs with --delete flag set will ONLY delete records which existing in the managed set, thus allowing DNS sync to operate in conjunction with some outside system (or manual changes)' ],
 	[ 'record-grouping|grouping|g=s', 'Set grouping mode for records to determine management and deleable status' ],
 );
 set_verbosity(1) if $cli->{verbose};

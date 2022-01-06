@@ -6,10 +6,10 @@ use warnings;
 use Test::More;
 use Test::Deep qw(cmp_set);
 
-require_ok('DnsSync::RecordSet');
+require_ok('Zonemod::RecordSet');
 
-use DnsSync::ZoneDb    qw(parse_zonedb);
-use DnsSync::RecordSet qw(group_records ungroup_records does_record_match);
+use Zonemod::ZoneDb    qw(parse_zonedb);
+use Zonemod::RecordSet qw(group_records ungroup_records does_record_match);
 
 my @rs = (
 	{ label => 'test-a', ttl => 300, class => 'IN', type => 'A',    data => "127.0.0.1" },

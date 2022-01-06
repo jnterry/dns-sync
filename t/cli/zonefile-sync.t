@@ -34,7 +34,7 @@ sub run {
 		}
 	}
 
-  my $out = qx[./bin/dns-sync sync $cliArgs 2>&1];
+  my $out = qx[./bin/zonemod sync $cliArgs 2>&1];
 	my $exit = ($? >> 8);
 	return ( $out, $exit );
 }

@@ -1,4 +1,4 @@
-package DnsSync::Utils;
+package Zonemod::Utils;
 
 use strict;
 use warnings;
@@ -26,7 +26,7 @@ my $ua;
 sub get_ua {
 	return $ua if defined $ua;
 	$ua = LWP::UserAgent->new;
-	$ua->agent('dns-sync');
+	$ua->agent('zonemod');
 	return $ua;
 }
 

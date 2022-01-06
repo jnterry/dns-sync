@@ -1,6 +1,6 @@
-package DnsSync::Driver::Route53;
+package Zonemod::Driver::Route53;
 
-=head1 OVERVIEW C<DnsSync::Driver::Route53>
+=head1 OVERVIEW C<Zonemod::Driver::Route53>
 
 zonemod driver for interacting with AWS Route53
 
@@ -12,9 +12,9 @@ use warnings;
 use File::Temp qw(tempfile);
 use JSON::XS   qw(decode_json encode_json);
 
-use DnsSync::RecordSet qw(group_records);
-use DnsSync::Diff      qw(compute_record_set_diff apply_diff);
-use DnsSync::Utils     qw(verbose);
+use Zonemod::RecordSet qw(group_records);
+use Zonemod::Diff      qw(compute_record_set_diff apply_diff);
+use Zonemod::Utils     qw(verbose);
 
 use Exporter qw(import);
 our @EXPORT_OK = qw(

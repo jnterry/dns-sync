@@ -1,6 +1,6 @@
-package DnsSync::Diff;
+package Zonemod::Diff;
 
-=head1 OVERVIEW C<DnsSync::Diff>
+=head1 OVERVIEW C<Zonemod::Diff>
 
 Helper functions for computing and applying 'diffs', IE sets of changes to a RecordSet
 
@@ -9,7 +9,7 @@ Helper functions for computing and applying 'diffs', IE sets of changes to a Rec
 use strict;
 use warnings;
 
-use DnsSync::RecordSet qw(group_records ungroup_records contains_record does_record_match);
+use Zonemod::RecordSet qw(group_records ungroup_records contains_record does_record_match);
 
 use Clone qw(clone);
 use Data::Compare;

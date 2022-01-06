@@ -1,6 +1,6 @@
-package DnsSync::RecordSet;
+package Zonemod::RecordSet;
 
-=head1 OVERVIEW C<DnsSync::RecordSet>
+=head1 OVERVIEW C<Zonemod::RecordSet>
 
 Helper functions for dealing with sets of DNS resource records
 

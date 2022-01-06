@@ -6,12 +6,12 @@ use warnings;
 use Test::More;;
 use Test::Deep qw(cmp_set);
 
-require_ok('DnsSync::Diff');
+require_ok('Zonemod::Diff');
 
 use Data::Dumper;
-use DnsSync::Diff qw(compute_record_set_diff apply_diff);
-use DnsSync::RecordSet qw(ungroup_records);
-use DnsSync::ZoneDb qw(encode_zonedb);
+use Zonemod::Diff qw(compute_record_set_diff apply_diff);
+use Zonemod::RecordSet qw(ungroup_records);
+use Zonemod::ZoneDb qw(encode_zonedb);
 
 sub test_case {
 	my ($name, $initial, $desired, $diffArgs, $expectedDiff, $expectedFinal) = @_;

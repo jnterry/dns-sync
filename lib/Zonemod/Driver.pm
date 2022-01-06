@@ -1,11 +1,11 @@
-package DnsSync::Driver;
+package Zonemod::Driver;
 
 use strict;
 use warnings;
 
-use Module::Pluggable search_path => ['DnsSync::Driver'], sub_name => 'drivers', require => 1;
+use Module::Pluggable search_path => ['Zonemod::Driver'], sub_name => 'drivers', require => 1;
 
-=head1 OVERVIEW C<DnsSync::Driver>
+=head1 OVERVIEW C<Zonemod::Driver>
 
 Utility functions for interacting with DNS drivers (IE: functionality
 for interacting with actual DNS storage mechanisms)

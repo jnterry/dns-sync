@@ -1,13 +1,13 @@
-package DnsSync::Cmd::Sync;
+package Zonemod::Cmd::Sync;
 
 use strict;
 use warnings;
 
-use DnsSync::Diff      qw(compute_record_set_diff apply_diff);
-use DnsSync::Driver    qw(get_driver_for_uri);
-use DnsSync::RecordSet qw(ungroup_records);
-use DnsSync::Utils     qw(verbose);
-use DnsSync::ZoneDb    qw(encode_zonedb);
+use Zonemod::Diff      qw(compute_record_set_diff apply_diff);
+use Zonemod::Driver    qw(get_driver_for_uri);
+use Zonemod::RecordSet qw(ungroup_records);
+use Zonemod::Utils     qw(verbose);
+use Zonemod::ZoneDb    qw(encode_zonedb);
 
 =head1 C<sync> - rsync for dns
 

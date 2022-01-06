@@ -1,13 +1,13 @@
-package DnsSync::Cmd::Delete;
+package Zonemod::Cmd::Delete;
 
 use strict;
 use warnings;
 
-use DnsSync::Driver    qw(get_driver_for_uri);
-use DnsSync::Utils     qw(verbose);
-use DnsSync::RecordSet qw(contains_record);
-use DnsSync::Diff      qw(compute_record_set_diff apply_diff);
-use DnsSync::ZoneDb    qw(parse_resource_record);
+use Zonemod::Driver    qw(get_driver_for_uri);
+use Zonemod::Utils     qw(verbose);
+use Zonemod::RecordSet qw(contains_record);
+use Zonemod::Diff      qw(compute_record_set_diff apply_diff);
+use Zonemod::ZoneDb    qw(parse_resource_record);
 
 use Data::Dumper;
 use Try::Tiny;

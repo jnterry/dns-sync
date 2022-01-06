@@ -1,6 +1,6 @@
-package DnsSync::ZoneDb;
+package Zonemod::ZoneDb;
 
-=head1 OVERVIEW C<DnsSync::ZoneDb>
+=head1 OVERVIEW C<Zonemod::ZoneDb>
 
 Functions for parsing and writing zone db format
 
@@ -9,7 +9,7 @@ Functions for parsing and writing zone db format
 use strict;
 use warnings;
 
-use DnsSync::RecordSet qw(group_records);
+use Zonemod::RecordSet qw(group_records);
 
 use Try::Tiny;
 

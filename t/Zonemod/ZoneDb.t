@@ -7,9 +7,9 @@ use Test::More;
 use Test::Deep qw(cmp_set);
 use List::MoreUtils qw(uniq);
 
-require_ok('DnsSync::ZoneDb');
+require_ok('Zonemod::ZoneDb');
 
-use DnsSync::ZoneDb qw(parse_zonedb parse_resource_record);
+use Zonemod::ZoneDb qw(parse_zonedb parse_resource_record);
 
 # ------------------------------------------------------
 # - TEST: parse_zone_record                            -

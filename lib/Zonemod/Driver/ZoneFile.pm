@@ -1,6 +1,6 @@
-package DnsSync::Driver::ZoneFile;
+package Zonemod::Driver::ZoneFile;
 
-=head1 OVERVIEW C<DnsSync::Driver::ZoneFile>
+=head1 OVERVIEW C<Zonemod::Driver::ZoneFile>
 
 zonemod dirver for interacting with zonedb files on local disk
 
@@ -14,10 +14,10 @@ use warnings;
 use File::Basename;
 use File::Path qw(make_path);
 
-use DnsSync::RecordSet qw(group_records);
-use DnsSync::Diff      qw(compute_record_set_diff apply_diff);
-use DnsSync::Utils     qw(verbose);
-use DnsSync::ZoneDb    qw(parse_zonedb encode_resource_records);
+use Zonemod::RecordSet qw(group_records);
+use Zonemod::Diff      qw(compute_record_set_diff apply_diff);
+use Zonemod::Utils     qw(verbose);
+use Zonemod::ZoneDb    qw(parse_zonedb encode_resource_records);
 
 use Exporter qw(import);
 our @EXPORT_OK = qw(

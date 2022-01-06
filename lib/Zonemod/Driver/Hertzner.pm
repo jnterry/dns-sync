@@ -1,6 +1,6 @@
-package DnsSync::Driver::Hertzner;
+package Zonemod::Driver::Hertzner;
 
-=head1 OVERVIEW C<DnsSync::Driver::Hertzner>
+=head1 OVERVIEW C<Zonemod::Driver::Hertzner>
 
 zonemod driver for interacting with Hertzner DNS
 
@@ -16,9 +16,9 @@ use JSON::XS qw(decode_json);
 use LWP::UserAgent;
 use Try::Tiny;
 
-use DnsSync::Utils   qw(verbose get_ua);
-use DnsSync::Diff    qw(compute_record_set_diff apply_diff);
-use DnsSync::ZoneDb  qw(parse_zonedb encode_zonedb);
+use Zonemod::Utils   qw(verbose get_ua);
+use Zonemod::Diff    qw(compute_record_set_diff apply_diff);
+use Zonemod::ZoneDb  qw(parse_zonedb encode_zonedb);
 
 use Exporter qw(import);
 our @EXPORT_OK = qw(
