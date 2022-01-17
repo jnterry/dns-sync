@@ -256,7 +256,7 @@ sub encode_diff {
 		for my $t (@types) {
 			# sort to put - before +
 			for my $r (sort { $b->{diff} cmp $a->{diff} } @{$map->{$n}{$t}}) {
-				$result .= $r->{diff} . "\t" . encode_resource_record($r) . "\n";
+				$result .= $r->{diff} . ' ' . encode_resource_record($r) . "\n";
 			}
 		}
 	}

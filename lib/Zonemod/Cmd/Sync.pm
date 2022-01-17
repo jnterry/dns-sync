@@ -3,7 +3,7 @@ package Zonemod::Cmd::Sync;
 use strict;
 use warnings;
 
-use Zonemod::Diff      qw(compute_record_set_diff apply_diff);
+use Zonemod::Diff      qw(compute_record_set_diff apply_diff encode_diff);
 use Zonemod::Driver    qw(get_driver_for_uri);
 use Zonemod::RecordSet qw(ungroup_records);
 use Zonemod::Utils     qw(verbose);
@@ -89,6 +89,9 @@ sub run {
 	my @flatDiff = ungroup_records($allowedDiff);
 	unless(scalar @flatDiff) {
 		print "No updates required\n";
+	} elsif($cli->{dryrun}) {
+		print "Dryrun mode - would have written following updates:\n";
+		print encode_diff($allowedDiff);
 	} else {
 		verbose "Writing updates to target";
 		$target->can('write_diff')->($targetUri, $allowedDiff, \%writeArgs);

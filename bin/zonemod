@@ -87,6 +87,7 @@ my ($cli) = describe_options(
 	[ 'delete', 'Removes records from destination which do not also exist in source. By default will overwrite existing items, but never delete them if there is no replacement' ],
 	[ 'managed-set|managed=s', 'Uses a third DNS storage mechanism (eg, file, route53) to maintain a list of records which are being managed by zonemod. Subsequent runs with --delete flag set will ONLY delete records which existing in the managed set, thus allowing DNS sync to operate in conjunction with some outside system (or manual changes)' ],
 	[ 'record-grouping|grouping|g=s', 'Set grouping mode for records to determine management and deleable status' ],
+	[ 'dryrun|noaction|dry-run|no-action|noop|n', 'Print changes that would have been made, without actually making them' ],
 );
 set_verbosity(1) if $cli->{verbose};
 

@@ -16,7 +16,7 @@ use Try::Tiny;
 use Exporter qw(import);
 our @EXPORT_OK = qw(
   parse_resource_record encode_resource_record encode_resource_records
-	parse_zonedb  encode_zonedb encode_resource_record
+	parse_zonedb encode_zonedb
 );
 
 my $VERBOSITY = 0;

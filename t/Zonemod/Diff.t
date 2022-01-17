@@ -480,13 +480,13 @@ my $parseRecords = [
 	{ diff => '-', label => 'test-a', ttl => 100, class => 'IN', type => 'A',   data => '127.0.0.1' },
 	{ diff => '+', label => 'test-a', ttl => 100, class => 'IN', type => 'A',   data => '127.0.0.2' },
 ];
-is_deeply(encode_diff($parseRecords), q{-	test-a	100	IN	A	127.0.0.1
-+	test-a	100	IN	A	127.0.0.2
+is_deeply(encode_diff($parseRecords), q{- test-a	100	IN	A	127.0.0.1
++ test-a	100	IN	A	127.0.0.2
 }, 'encode_diff');
 
 
 my @decodedDiff = parse_diff(q{
--	test-a        100	IN	A	127.0.0.1
+- test-a        100	IN	A	127.0.0.1
 ; - test-b	100 IN A 127.0.0.1
 +	test-a	100	IN	A	127.0.0.2
 ; comment
