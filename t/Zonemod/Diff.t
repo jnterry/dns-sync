@@ -9,7 +9,7 @@ use Test::Deep qw(cmp_set);
 require_ok('Zonemod::Diff');
 
 use Data::Dumper;
-use Zonemod::Diff qw(compute_record_set_diff apply_diff);
+use Zonemod::Diff qw(compute_record_set_diff apply_diff encode_diff parse_diff);
 use Zonemod::RecordSet qw(ungroup_records);
 use Zonemod::ZoneDb qw(encode_zonedb);
 
@@ -472,5 +472,26 @@ test_case(
 		{ label => 'test-f', ttl => 100, class => 'IN', type => 'TXT', data => 'testing'   },
 	],
 );
+
+# ------------------------------------------------------
+# - TEST: encode_diff / decode_diff                    -
+# ------------------------------------------------------
+my $parseRecords = [
+	{ diff => '-', label => 'test-a', ttl => 100, class => 'IN', type => 'A',   data => '127.0.0.1' },
+	{ diff => '+', label => 'test-a', ttl => 100, class => 'IN', type => 'A',   data => '127.0.0.2' },
+];
+is_deeply(encode_diff($parseRecords), q{-	test-a	100	IN	A	127.0.0.1
++	test-a	100	IN	A	127.0.0.2
+}, 'encode_diff');
+
+
+my @decodedDiff = parse_diff(q{
+-	test-a        100	IN	A	127.0.0.1
+; - test-b	100 IN A 127.0.0.1
++	test-a	100	IN	A	127.0.0.2
+; comment
+   ; comment
+});
+is_deeply(\@decodedDiff, $parseRecords, 'parse_diff');
 
 done_testing();

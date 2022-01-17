@@ -10,6 +10,7 @@ use strict;
 use warnings;
 
 use Zonemod::RecordSet qw(group_records ungroup_records contains_record does_record_match);
+use Zonemod::ZoneDb    qw(encode_resource_record parse_resource_record);
 
 use Clone qw(clone);
 use Data::Compare;
@@ -19,8 +20,8 @@ use Data::Dumper;
 
 use Exporter qw(import);
 our @EXPORT_OK = qw(
-	compute_record_set_diff apply_diff
-							 );
+	compute_record_set_diff apply_diff is_managed encode_diff parse_diff
+);
 
 my @GROUPINGS = ( 'none', 'type', 'host' );
 
@@ -111,7 +112,7 @@ sub compute_record_set_diff {
 				next if contains_record($d, $r);
 
 				# Check we manage the record in question
-				my $allowed = !defined $opts->{managed} || _is_managed($managedMap, $grouping, $r);
+				my $allowed = !defined $opts->{managed} || is_managed($managedMap, $grouping, $r);
 
 				# Prevent delete if we don't group with other records
 				$allowed = 0 if($opts->{noDelete} && $grouping eq 'none');
@@ -133,14 +134,14 @@ sub compute_record_set_diff {
 					!defined $opts->{managed} ||
 
 					# We are explictly managing the record in question
-					_is_managed($managedMap, $grouping, $r) ||
+					is_managed($managedMap, $grouping, $r) ||
 
 					# The existing data is NOT managing the record group in question,
 					# hence we can freely create it
-					!_is_managed($existingMap, $grouping, $r) ||
+					!is_managed($existingMap, $grouping, $r) ||
 
 					# We have ALREADY deleted a record in the same group, and hence are now allowed to replace it
-					_is_managed($allowedDiff, $grouping, $r)
+					is_managed($allowedDiff, $grouping, $r)
 				);
 
 				if($allowed) {
@@ -164,7 +165,7 @@ sub compute_record_set_diff {
 
 			for my $r (@$e) {
 				# check we manage the record
-				my $allowed = !defined $opts->{managed} || _is_managed($managedMap, $grouping, $r);
+				my $allowed = !defined $opts->{managed} || is_managed($managedMap, $grouping, $r);
 
 				# if noDelete is set, we are not allowed to delete the record, unless
 				# we are grouping by complete host, and there do exist SOME records for the host in question
@@ -186,9 +187,16 @@ sub compute_record_set_diff {
 	return $allowedDiff;
 }
 
-# Helper for compute diff which works out if a particular record is managed
-sub _is_managed {
+=item C<is_managed>
+
+Helper to check if a particular record is managed by a particular record set
+
+Params (managedRecords, groupingType, record)
+
+=cut
+sub is_managed {
 	my ($map, $grouping, $record) = @_;
+	$grouping //= 'type';
 
 	if($grouping eq 'host') {
 		return contains_record($map, { class => $record->{class}, label => $record->{label} });
@@ -228,6 +236,55 @@ sub apply_diff {
 	}
 
 	return ungroup_records($updated);
+}
+
+=item C<encode_diff>
+
+Writes a diff to string - looks like zonemod file, with an additional  + / - column before main record
+
+=cut
+sub encode_diff {
+	my ($diff) = @_;
+
+  my $map = ref($diff) eq "ARRAY" ? group_records($diff) : $diff;
+
+	my $result = '';
+
+	my @names = sort keys %$map;
+	for my $n (@names) {
+		my @types = sort keys %{$map->{$n}};
+		for my $t (@types) {
+			# sort to put - before +
+			for my $r (sort { $b->{diff} cmp $a->{diff} } @{$map->{$n}{$t}}) {
+				$result .= $r->{diff} . "\t" . encode_resource_record($r) . "\n";
+			}
+		}
+	}
+
+	return $result;
+}
+
+=item C<parse_diff>
+
+Loads a diff from string previously generated with encode_diff
+
+=cut
+sub parse_diff {
+	my ($raw) = @_;
+
+  my @results = ();
+
+	for my $line (split("\n", $raw )) {
+		next if $line =~ /^\s*(;.+)?$/; # skip empty lines and comments
+
+	  die "Cannot parse diff line '$line'" unless $line =~ qr{([+\-])\s+(.+)};
+		my $diff   = $1;
+		my $record = parse_resource_record($2);
+		$record->{diff} = $1;
+		push @results, $record;
+	}
+
+	return @results;
 }
 
 =back
