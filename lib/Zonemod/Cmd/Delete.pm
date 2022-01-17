@@ -6,7 +6,7 @@ use warnings;
 use Zonemod::Driver    qw(get_driver_for_uri);
 use Zonemod::Utils     qw(verbose);
 use Zonemod::RecordSet qw(contains_record);
-use Zonemod::Diff      qw(compute_record_set_diff apply_diff);
+use Zonemod::Diff      qw(is_managed encode_diff);
 use Zonemod::ZoneDb    qw(parse_resource_record);
 
 use Data::Dumper;
@@ -37,13 +37,6 @@ modifications of a DNS provider's records.
 zonemod will refuse to delete an entry not in the managed set, and will also update the managed set
 to remeber the record in question is no longer managed
 
-=item --force
-
-Prevent unsuccessful exit when record does not already exist
-
-Additionally, will forceably delete the record from both TARGET and managed set, even if zonemod does
-not currently manage the record in question
-
 =back
 
 =cut
@@ -67,9 +60,9 @@ sub run {
 
 	my $existing = $target->can('get_records')->($targetUri);
 
-	unless($cli->{force} || contains_record($existing->{records}, $record)) {
-		print STDERR "Specified record does not exist\n";
-		return 1;
+	unless(contains_record($existing->{records}, $record)) {
+		($cli->{strict} ? *STDOUT : *STDERR)->print("Specified record does not exist\n");
+		return $cli->{strict};
 	}
 
 	# Fetch data for managed set
@@ -79,16 +72,22 @@ sub run {
 			allowNonExistent => 1,
 		});
 
-		unless($cli->{force} || contains_record($managed->{records}, $record)) {
-			print STDERR "Refusing to delete record: does not exist in managed set";
+		unless(is_managed($managedData->{records}, $cli->{record_grouping}, $record)) {
+			print STDERR "Refusing to delete record: not present in managed set";
 			return 1;
 		}
 	}
 
 	my $diff = [{diff => '-', %$record }];
-	$target->can('write_diff')->($targetUri, $diff, { wait => $cli->{wait} });
-	if($managed) {
-		$managed->can('write_diff')->($targetUri, $diff, { wait => $cli->{wait} });
+
+	if($cli->{dryrun}) {
+		print "Dryrun mode set - would have applied diff:\n";
+		print encode_diff($diff);
+	} else {
+		$target->can('write_diff')->($targetUri, $diff, { wait => $cli->{wait}, dryrun => $cli->{dryrun} });
+		if($managed) {
+			$managed->can('write_diff')->($cli->{managed_set}, $diff, { wait => $cli->{wait}, dryrun => $cli->{dryrun} });
+		}
 	}
 
 	return 0;

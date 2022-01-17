@@ -46,6 +46,12 @@ tools and/or manual modification's of a DNS provider's records
 managed is intendend to be a clean set of records which zonemod will replicate all changes to TARGET
 to also, hence it can be read back to determine which records zonemod "owns" on future runs.
 
+=item --strict
+
+By default, zonemod will simply ignore empty updates (eg, deleting a non-existant record, creating
+a record which already exists, etc). When --strict is set, it will instead print an error to stderr
+and then exit with a non-zero return code
+
 =item --record-grouping | --grouping | -g = [ none, type, host ]
 
 Sets the grouping mode for records - defaults to 'type' if not specified
@@ -88,6 +94,7 @@ my ($cli) = describe_options(
 	[ 'managed-set|managed=s', 'Uses a third DNS storage mechanism (eg, file, route53) to maintain a list of records which are being managed by zonemod. Subsequent runs with --delete flag set will ONLY delete records which existing in the managed set, thus allowing DNS sync to operate in conjunction with some outside system (or manual changes)' ],
 	[ 'record-grouping|grouping|g=s', 'Set grouping mode for records to determine management and deleable status' ],
 	[ 'dryrun|noaction|dry-run|no-action|noop|n', 'Print changes that would have been made, without actually making them' ],
+	[ 'strict', 'Complain loudly and exit with non-zero status if no updates are required (deleting non-existant record, creating already existing record)']
 );
 set_verbosity(1) if $cli->{verbose};
 
