@@ -13,7 +13,6 @@ use strict;
 use warnings;
 
 use JSON::XS qw(decode_json);
-use LWP::UserAgent;
 use Try::Tiny;
 
 use Zonemod::Utils   qw(verbose get_ua);
