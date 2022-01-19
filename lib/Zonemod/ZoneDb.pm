@@ -111,7 +111,7 @@ sub parse_zonedb {
 	my $lineNum = 0;
 	foreach my $line (@lines) {
 		++$lineNum;
-		next if $line =~ /^(\s*|\s*;.+)$/; # skip empty lines, or comments (starting with ';')
+		next if $line =~ /^(;.*|\s*)$/; # skip empty lines, or comments (starting with ';')
 
 		my $errorLoc = defined $path ? "$path:$lineNum" : "line $line";
 
