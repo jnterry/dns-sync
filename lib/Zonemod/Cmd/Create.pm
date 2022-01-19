@@ -1,4 +1,4 @@
-package Zonemod::Cmd::Delete;
+package Zonemod::Cmd::Create;
 
 use strict;
 use warnings;
@@ -14,15 +14,15 @@ use Try::Tiny;
 
 =head1 C<delete>
 
-Delete single record from DNS zone
+Creates single record in DNS zone
 
 =head1 USAGE
 
-	zonemod delete 'test-a 100 A 127.0.0.1' ./zonefile.db
+	zonemod create 'test-a 100 A 127.0.0.1' ./zonefile.db
 
 =head1 ALIASES
 
-delete, del, remove, rm
+create make mk add
 
 =head1 FLAGS
 
@@ -34,20 +34,21 @@ If set, will read/write from an additional DNS storage backend to keep track of 
 records. This allows zonemod to be used in conjunction with other automatted tools and/or manual
 modifications of a DNS provider's records.
 
-zonemod will refuse to delete an entry not in the managed set, and will also update the managed set
-to remeber the record in question is no longer managed
+zonemod will refuse to create a record if it is managed by the target zone (under the active
+ --grouping rules) unless it also exists in the managed set. Create command willalso update the
+managed set to include the new record
 
 =back
 
 =cut
 
 sub aliases {
-	return qw(delete del remove rm);
+	return qw(create make mk add);
 }
 
 sub run {
 	my ($cli, $recordStr, $targetUri) = @_;
-	die "Delete command expects 2 positional arguments: RECORD and TARGET" unless $recordStr && $targetUri;
+	die "Create command expects 2 positional arguments: RECORD and TARGET" unless $recordStr && $targetUri;
 
 	my $record = try {
 		return parse_resource_record($recordStr);
@@ -58,10 +59,10 @@ sub run {
 	my $target  = get_driver_for_uri($targetUri, 'target');
   my $managed = get_driver_for_uri($cli->{managed_set}, 'managed-set');
 
-	my $existing = $target->can('get_records')->($targetUri);
+	my $existing = $target->can('get_records')->($targetUri, { allowNonExistent => 1 });
 
-	unless(contains_record($existing->{records}, $record)) {
-		($cli->{strict} ? *STDOUT : *STDERR)->print("Specified record does not exist\n");
+	if(contains_record($existing->{records}, { %$record, ttl => $cli->{strict} ? undef : $record->{ttl} })) {
+		($cli->{strict} ? *STDOUT : *STDERR)->print("Specified record already exists\n");
 		return $cli->{strict} // 0;
 	}
 
@@ -72,19 +73,24 @@ sub run {
 			allowNonExistent => 1,
 		});
 
-		unless(is_managed($managedData->{records}, $cli->{record_grouping}, $record)) {
-			print STDERR "Refusing to delete record: not present in managed set";
+		if(
+			is_managed($existing->{records}, $cli->{record_grouping}, $record) &&
+			!is_managed($managedData->{records}, $cli->{record_grouping}, $record)
+		) {
+			print STDERR "Refusing to create record: group already managed by target zone, but not by managed set";
 			return 1;
 		}
 	}
 
-	my $diff = [{diff => '-', %$record }];
-
+	my $diff = [
+		{diff => '-', %$record, ttl => undef },
+		{diff => '+', %$record },
+	];
 	if($cli->{dryrun}) {
 		print "Dryrun mode set - would have applied diff:\n";
 		print encode_diff($diff);
 	} else {
-		$target->can('write_diff')->($targetUri, $diff, { wait => $cli->{wait}, dryrun => $cli->{dryrun} });
+		$target->can('write_diff')->($targetUri, $diff, { wait => $cli->{wait}, dryrun => $cli->{dryrun}, allowNonExistent => 1 });
 		if($managed) {
 			$managed->can('write_diff')->($cli->{managed_set}, $diff, { wait => $cli->{wait}, dryrun => $cli->{dryrun} });
 		}

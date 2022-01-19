@@ -494,4 +494,54 @@ my @decodedDiff = parse_diff(q{
 });
 is_deeply(\@decodedDiff, $parseRecords, 'parse_diff');
 
+# ------------------------------------------------------
+# - TEST: apply_diff                                   -
+# ------------------------------------------------------
+
+# Check that apply_diff with unset TTL acts as wildcard
+{
+	my @rsIn = (
+		{ label => 'test-a', ttl => 100, class => 'IN', type => 'A', data => '127.0.0.1' },
+		{ label => 'test-b', ttl => 100, class => 'IN', type => 'A', data => '127.0.0.1' },
+	);
+	my @rsExpected = (
+		{ label => 'test-b', ttl => 100, class => 'IN', type => 'A', data => '127.0.0.1' },
+	);
+	my @rsOut = apply_diff(\@rsIn, [
+		{ diff => '-', label => 'test-a', class => 'IN', type => 'A', data => '127.0.0.1' },
+	]);
+  cmp_set(\@rsOut, \@rsExpected, "apply_diff with undef TTL acts as wildcard");
+}
+
+# Ensure apply_diff applies changes in order
+{
+	my @rsIn = (
+		{ label => 'test-a', ttl => 100, class => 'IN', type => 'A', data => '127.0.0.1' },
+		{ label => 'test-b', ttl => 100, class => 'IN', type => 'A', data => '127.0.0.1' },
+	);
+	my @rsExpected = (
+		{ label => 'test-a', ttl => 300, class => 'IN', type => 'A', data => '127.0.0.1' },
+		{ label => 'test-b', ttl => 100, class => 'IN', type => 'A', data => '127.0.0.1' },
+	);
+	my @rsOut = apply_diff(\@rsIn, [
+		{ diff => '-', label => 'test-a', class => 'IN', type => 'A', data => '127.0.0.1' },
+		{ diff => '+', label => 'test-a', ttl => 300, class => 'IN', type => 'A', data => '127.0.0.1' },
+	]);
+  cmp_set(\@rsOut, \@rsExpected, "apply_diff works in order (delete before add)");
+}
+{
+	my @rsIn = (
+		{ label => 'test-a', ttl => 100, class => 'IN', type => 'A', data => '127.0.0.1' },
+		{ label => 'test-b', ttl => 100, class => 'IN', type => 'A', data => '127.0.0.1' },
+	);
+	my @rsExpected = (
+		{ label => 'test-b', ttl => 100, class => 'IN', type => 'A', data => '127.0.0.1' },
+	);
+	my @rsOut = apply_diff(\@rsIn, [
+		{ diff => '+', label => 'test-a', ttl => 300, class => 'IN', type => 'A', data => '127.0.0.1' },
+		{ diff => '-', label => 'test-a', class => 'IN', type => 'A', data => '127.0.0.1' },
+	]);
+  cmp_set(\@rsOut, \@rsExpected, "apply_diff works in order (add before delete)");
+}
+
 done_testing();

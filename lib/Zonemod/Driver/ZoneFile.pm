@@ -110,7 +110,7 @@ Applys a set of diff to the specified provider, creating and deleting records as
 sub write_diff {
 	my ($uri, $diff, $args) = @_;
 
-	my $existing = $args->{existing} || get_records($uri);
+	my $existing = $args->{existing} || get_records($uri, { allowNonExistent => $args->{allowNonExistent} });
 	my @final = apply_diff($existing->{records}, $diff);
 
 	return set_records(
