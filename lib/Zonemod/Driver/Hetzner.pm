@@ -1,8 +1,8 @@
-package Zonemod::Driver::Hertzner;
+package Zonemod::Driver::Hetzner;
 
-=head1 OVERVIEW C<Zonemod::Driver::Hertzner>
+=head1 OVERVIEW C<Zonemod::Driver::Hetzner>
 
-zonemod driver for interacting with Hertzner DNS
+zonemod driver for interacting with Hetzner DNS
 
 Can find zone's ID as final component of URL by selecting it from dashboard at:
 https://dns.hetzner.com/
@@ -25,11 +25,11 @@ our @EXPORT_OK = qw(
 );
 
 my $API_ENDPOINT = 'https://dns.hetzner.com/api/v1';
-my $URI_REGEX    = qr|^hertzner://(.+)$|;
+my $URI_REGEX    = qr|^hetzner://(.+)$|;
 
 sub _get_api_token {
-	my $token = $ENV{DNS_SYNC_HERTZNER_API_TOKEN};
-	die "Must specify DNS_SNC_HERTNZER_API_TOKEN env variable" unless $token;
+	my $token = $ENV{ZONEMOD_HETZNER_API_TOKEN};
+	die "Must specify ZONEMOD_HETNZER_API_TOKEN env variable" unless $token;
 	return $token;
 }
 
@@ -50,13 +50,13 @@ sub can_handle {
 
 =item C<get_records>
 
-Fetches the existing records from Hertzner
+Fetches the existing records from Hetzner
 
 =cut
 sub get_records {
 	my ($uri) = @_;
 
-	die "Invalid Hertzner URI: $uri" unless $uri =~ $URI_REGEX;
+	die "Invalid Hetzner URI: $uri" unless $uri =~ $URI_REGEX;
 	my $zoneId = $1;
 
 	my $ua = get_ua();
@@ -66,7 +66,7 @@ sub get_records {
 		[ 'Auth-API-Token' => _get_api_token() ],
 	));
 
-	die 'Failed to fetch existing records from hertzner: ' . $res->status_line unless $res->is_success;
+	die 'Failed to fetch existing records from hetzner: ' . $res->status_line unless $res->is_success;
 
   my $body = $res->decoded_content;
 	return parse_zonedb($body);
@@ -74,7 +74,7 @@ sub get_records {
 
 =item C<write_diff>
 
-Writes a set of diffs to Hertzner
+Writes a set of diffs to Hetzner
 
 =cut
 sub write_diff {
@@ -97,13 +97,13 @@ sub write_diff {
 
 =item C<set_records>
 
-Writes records to Hertzner, replacing any existing data
+Writes records to Hetzner, replacing any existing data
 
 =cut
 sub set_records {
 	my ($uri, $zonedb, $args) = @_;
 
-	die "Invalid Hertzner URI: $uri" unless $uri =~ $URI_REGEX;
+	die "Invalid Hetzner URI: $uri" unless $uri =~ $URI_REGEX;
 	my $zoneId = $1;
 
 	my $zonefile = encode_zonedb($zonedb);
@@ -117,16 +117,16 @@ sub set_records {
 		],
 		$zonefile,
 	));
-	die 'Failed to update hertzner records: ' . $res->status_line . "\n" . $res->decoded_content unless $res->is_success;
+	die 'Failed to update hetzner records: ' . $res->status_line . "\n" . $res->decoded_content unless $res->is_success;
 
 	my $body = try {
 	  return decode_json($res->decoded_content);
 	} catch {
-		die "Unexpected hertzner response after update (bad json: $!)";
+		die "Unexpected hetzner response after update (bad json: $!)";
 	};
-	die "Unexpected hertzner response after update (bad zone id)" unless $body->{zone}{id} eq $zoneId;
+	die "Unexpected hetzner response after update (bad zone id)" unless $body->{zone}{id} eq $zoneId;
 
-	print "Updated Hertzner Zone Successfully\n";
+	print "Updated Hetzner Zone Successfully\n";
 }
 
 =back
